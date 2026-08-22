@@ -2,19 +2,15 @@ package com.folio.read.ui.components
 
 import androidx.compose.foundation.interaction.Interaction
 import androidx.compose.foundation.interaction.MutableInteractionSource
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.offset
 import androidx.compose.material3.Icon
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.unit.dp
 import com.folio.read.ui.navigation.AppSections
 import com.folio.read.ui.navigation.mainRoutes
 import kotlinx.coroutines.flow.Flow
@@ -40,8 +36,6 @@ private class SilentInteractionSource : MutableInteractionSource {
 fun AppNavBar(
     selectedSection: AppSections,
     onSectionSelected: (AppSections) -> Unit,
-    /** 有可更新版本:设置 tab 图标右上角显示红点 */
-    showSettingsBadge: Boolean = false,
     modifier: Modifier = Modifier,
 ) {
     NavigationBar(modifier = modifier) {
@@ -56,16 +50,7 @@ fun AppNavBar(
                     }
                 },
                 icon = {
-                    Box {
-                        Icon(painter = painterResource(route.iconRes), contentDescription = null)
-                        if (route == AppSections.Settings && showSettingsBadge) {
-                            UpdateBadge(
-                                modifier = Modifier
-                                    .align(Alignment.TopEnd)
-                                    .offset(x = 6.dp, y = (-2).dp),
-                            )
-                        }
-                    }
+                    Icon(painter = painterResource(route.iconRes), contentDescription = null)
                 },
                 label = { Text(text = stringResource(route.labelRes)) },
                 alwaysShowLabel = false,

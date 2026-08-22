@@ -25,7 +25,6 @@ import androidx.compose.foundation.layout.wrapContentHeight
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Icon
@@ -38,7 +37,6 @@ import androidx.compose.material3.SegmentedButtonDefaults
 import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
@@ -70,9 +68,8 @@ import com.folio.read.data.ShelfLayout
 import com.folio.read.data.ShelfLayoutMode
 import com.folio.read.data.UpdateCheckResult
 import com.folio.read.data.UpdateChecker
-import com.folio.read.data.UpdateSettingsRepository
 import com.folio.read.data.compareVersions
-import com.folio.read.ui.components.UpdateBadge
+import com.folio.read.ui.components.UpdateDialog
 import com.folio.read.ui.components.connectedCornerRadius
 import com.folio.read.ui.components.endCornerRadius
 import com.folio.read.ui.components.endItemShape
@@ -158,9 +155,6 @@ fun SettingsScreen(
     onAiConfigChange: (AiConfig) -> Unit,
     titleClean: Boolean,
     onTitleCleanChange: (Boolean) -> Unit,
-    /** 冷启动检查到可更新版本:检查更新行显示红点;处理(下载/忽略/查看)后回调清除 */
-    hasUpdate: Boolean,
-    onUpdateHandled: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val context = LocalContext.current
@@ -168,10 +162,9 @@ fun SettingsScreen(
     var showPageTurnDialog by remember { mutableStateOf(false) }
     var showAiDialog by remember { mutableStateOf(false) }
 
-    // 检查更新:查 GitHub 最新 release,有新版本且未被忽略时弹窗;查询失败静默
+    // 检查更新:查 GitHub 最新 release,有新版本时弹窗;查询失败静默
     val scope = rememberCoroutineScope()
     val updateChecker = remember { UpdateChecker() }
-    val updateSettingsRepo = remember { UpdateSettingsRepository(context.applicationContext) }
     var updateVersion by remember { mutableStateOf<String?>(null) }
 
     fun checkUpdate() {
@@ -430,15 +423,10 @@ fun SettingsScreen(
                         headlineContent = { Text(text = stringResource(R.string.settings_about_update)) },
                         leadingContent = { SettingsIcon(R.drawable.ic_settings_update) },
                         trailingContent = {
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                if (hasUpdate) {
-                                    UpdateBadge(modifier = Modifier.padding(end = 8.dp))
-                                }
-                                Icon(
-                                    painter = painterResource(R.drawable.ic_arrow_right),
-                                    contentDescription = null,
-                                )
-                            }
+                            Icon(
+                                painter = painterResource(R.drawable.ic_arrow_right),
+                                contentDescription = null,
+                            )
                         },
                         colors = listItemColors(),
                         modifier = Modifier
@@ -530,41 +518,19 @@ fun SettingsScreen(
         )
     }
 
-    // 发现新版本弹窗:前往下载(浏览器打开 release)/不再提示(记住该版本);处理后清除红点
+    // 发现新版本弹窗:下载(浏览器)/关闭(仅关本次弹窗——手动检查不记「不再提醒」,
+    // 该语义只属于冷启动自动检查,见 MainActivity)
     updateVersion?.let { version ->
-        AlertDialog(
-            onDismissRequest = {
+        UpdateDialog(
+            version = version,
+            onDownload = {
                 updateVersion = null
-                onUpdateHandled()
+                context.startActivity(
+                    Intent(Intent.ACTION_VIEW, Uri.parse("$GITHUB_REPO_URL/releases/latest")),
+                )
             },
-            title = { Text(text = stringResource(R.string.update_found_title)) },
-            text = { Text(text = stringResource(R.string.update_found_message, version)) },
-            containerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
-            titleContentColor = MaterialTheme.colorScheme.primary,
-            textContentColor = MaterialTheme.colorScheme.onSurfaceVariant,
-            confirmButton = {
-                TextButton(
-                    onClick = {
-                        updateVersion = null
-                        onUpdateHandled()
-                        context.startActivity(
-                            Intent(Intent.ACTION_VIEW, Uri.parse("$GITHUB_REPO_URL/releases/latest")),
-                        )
-                    },
-                ) {
-                    Text(text = stringResource(R.string.update_go_download))
-                }
-            },
-            dismissButton = {
-                TextButton(
-                    onClick = {
-                        updateVersion = null
-                        onUpdateHandled()
-                        scope.launch { updateSettingsRepo.setIgnoredVersion(version) }
-                    },
-                ) {
-                    Text(text = stringResource(R.string.update_not_again))
-                }
+            onDismiss = {
+                updateVersion = null
             },
         )
     }

@@ -74,6 +74,7 @@ import com.folio.read.data.ShelfLayoutMode
 import com.folio.read.data.ShelfSettingsRepository
 import com.folio.read.ui.components.AppNavBar
 import com.folio.read.ui.components.FolioTopBar
+import com.folio.read.ui.components.UpdateDialog
 import com.folio.read.ui.components.detachedItemShape
 import com.folio.read.ui.library.LibraryAddActivity
 import com.folio.read.ui.navigation.AppSections
@@ -144,10 +145,10 @@ private fun AppRoot() {
     // null=查询中(启动首帧不显示空态占位符,有书时避免闪几帧占位);empty=确实无书
     val books by bookRepo.books.collectAsState(initial = null)
 
-    // 冷启动静默检查更新:有新版本且未被「不再提示」忽略 → 设置 tab/检查更新行显示红点
-    var hasUpdate by remember { mutableStateOf(false) }
+    // 冷启动自动检查更新:有新版本且未被「关闭」忽略 → 直接弹对话框
     val updateChecker = remember { UpdateChecker() }
     val updateSettingsRepo = remember { UpdateSettingsRepository(context.applicationContext) }
+    var pendingUpdate by remember { mutableStateOf<String?>(null) }
     LaunchedEffect(Unit) {
         val result = updateChecker.checkLatest()
         if (result is UpdateCheckResult.Latest) {
@@ -155,8 +156,9 @@ private fun AppRoot() {
             val current = runCatching {
                 context.packageManager.getPackageInfo(context.packageName, 0).versionName
             }.getOrNull() ?: "0"
+            // 版本更新于当前 且 不是被关闭过的版本(更新版仍会提示)
             if (compareVersions(result.release.version, current) > 0 && result.release.version != ignored) {
-                hasUpdate = true
+                pendingUpdate = result.release.version
             }
         }
     }
@@ -394,7 +396,6 @@ private fun AppRoot() {
                     AppNavBar(
                         selectedSection = selectedSection,
                         onSectionSelected = { selectedSection = it },
-                        showSettingsBadge = hasUpdate,
                     )
                 },
             ) { innerPadding ->
@@ -463,8 +464,6 @@ private fun AppRoot() {
                             onTitleCleanChange = { enabled ->
                                 appScope.launch { titleCleanRepo.setEnabled(enabled) }
                             },
-                            hasUpdate = hasUpdate,
-                            onUpdateHandled = { hasUpdate = false },
                             modifier = contentModifier,
                         )
                     }
@@ -474,6 +473,24 @@ private fun AppRoot() {
             // 选择模式下返回键退出选择,而非退出应用
             BackHandler(enabled = selectedBookIds.isNotEmpty()) {
                 selectedBookIds = emptySet()
+            }
+
+            // 冷启动检测到新版本:下载(浏览器)/关闭(记住该版本,本次不再提醒;更更新的版本仍会提示)
+            pendingUpdate?.let { version ->
+                UpdateDialog(
+                    version = version,
+                    onDownload = {
+                        pendingUpdate = null
+                        context.startActivity(
+                            Intent(Intent.ACTION_VIEW, Uri.parse("https://github.com/Polyaris-0413/Folio/releases/latest")),
+                        )
+                    },
+                    onDismiss = {
+                        pendingUpdate = null
+                        appScope.launch { updateSettingsRepo.setIgnoredVersion(version) }
+                        Toast.makeText(context, context.getString(R.string.update_dismissed), Toast.LENGTH_SHORT).show()
+                    },
+                )
             }
 
             // 移除确认:仅从书架移除记录,不删除源文件
