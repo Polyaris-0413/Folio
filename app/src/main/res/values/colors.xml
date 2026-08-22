@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- 启动图背景 = 应用浅色背景(Neutral 方案 tone 98,精确值取自 folioColorScheme) -->
+    <color name="splash_background">#FEF8F4</color>
+    <!-- 图标背景 = 浅色主题 primary(Neutral 方案,精确值取自 folioColorScheme) -->
+    <color name="launcher_icon_background">#655E48</color>
+    <!-- 深棕底上的前景图标色 = 主题种子色 Amber 100,对比度 11.21:1 -->
+    <color name="launcher_icon_foreground">#FFECB3</color>
+</resources>

@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- 深色模式下启动图背景 = 应用深色背景(Neutral 方案 tone 6) -->
+    <color name="splash_background">#141311</color>
+</resources>

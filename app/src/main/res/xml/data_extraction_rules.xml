@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 云端备份与设备迁移默认全量,未配置排除项 -->
+<data-extraction-rules>
+    <cloud-backup />
+</data-extraction-rules>

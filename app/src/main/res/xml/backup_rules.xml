@@ -1,0 +1,3 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 应用数据默认全量备份,未配置排除项 -->
+<full-backup-content />

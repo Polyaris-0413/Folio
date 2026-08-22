@@ -1,0 +1,7 @@
+{
+  "uniqueId": "legado-with-md3",
+  "name": "legado-with-MD3",
+  "description": "部分代码移植:章节规则、书名解析、段落处理、朗读思路",
+  "website": "https://github.com/HapeLee/legado-with-MD3",
+  "licenses": ["GPL-3.0-only"]
+}

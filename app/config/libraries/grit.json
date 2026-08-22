@@ -1,0 +1,7 @@
+{
+  "uniqueId": "grit",
+  "name": "Grit",
+  "description": "部分代码移植:圆角分组卡片样式(ListItemExt)",
+  "website": "https://github.com/shub39/Grit",
+  "licenses": ["GPL-3.0-only"]
+}
