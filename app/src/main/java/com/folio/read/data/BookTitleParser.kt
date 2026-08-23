@@ -1,5 +1,11 @@
 package com.folio.read.data
 
+/*
+ * 书名解析规则移植自 legado(https://github.com/gedoor/legado)
+ * 经 legado-with-MD3(https://github.com/HapeLee/legado-with-MD3)参考
+ * SPDX-License-Identifier: GPL-3.0-only
+ */
+
 /**
  * 从本地文件名解析书名,规则分两层:
  * 第一层照搬 Legado(LocalBook.analyzeNameAuthor + AppPattern.nameRegex):

@@ -1,5 +1,11 @@
 package com.folio.read.ui.reader
 
+/*
+ * 章节规则移植自 legado(https://github.com/gedoor/legado)
+ * 经 legado-with-MD3(https://github.com/HapeLee/legado-with-MD3)参考
+ * SPDX-License-Identifier: GPL-3.0-only
+ */
+
 /**
  * 章节标题识别:正则照搬 Legado 3.26 默认「目录」规则(assets/defaultData/txtTocRule.json
  * serialNumber=1)。返回每个章节标题块的「块首字符偏移」;连续标题行(中间无空行,
