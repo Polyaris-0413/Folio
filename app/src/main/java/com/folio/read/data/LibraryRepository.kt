@@ -32,11 +32,12 @@ class LibraryRepository(context: Context) {
         store.set(KEY_LIBRARY_DIR, uri.toString())
     }
 
-    /** 扫描书架目录下的 txt 文件(一层);返回 (uri, 文件名) 列表。书库添加页与自动同步共用 */
-    suspend fun scanLibrary(): List<Pair<Uri, String>> {
-        val dir = libraryDir.first() ?: return emptyList()
+    /** 扫描书架目录下的 txt 文件(一层);返回 (uri, 文件名) 列表。书库添加页与自动同步共用。
+     * @param dir 显式指定目录 URI(选目录后立即同步用,不依赖 DataStore 异步写入竞态);null 时读持久化目录 */
+    suspend fun scanLibrary(dir: String? = null): List<Pair<Uri, String>> {
+        val target = dir ?: libraryDir.first() ?: return emptyList()
         return withContext(Dispatchers.IO) {
-            DocumentFile.fromTreeUri(appContext, Uri.parse(dir))?.listFiles()
+            DocumentFile.fromTreeUri(appContext, Uri.parse(target))?.listFiles()
                 ?.filter { it.isFile && it.name?.endsWith(".txt", ignoreCase = true) == true }
                 ?.map { it.uri to (it.name ?: "") }
                 ?: emptyList()

@@ -256,7 +256,8 @@ private fun AppRoot() {
             val dir = forceDir ?: libraryRepo.libraryDir.first()
             if (enabled && dir != null) {
                 // 已移除的书(手动删除过)自动同步不再加回;手动添加会清除该记录
-                libraryRepo.scanLibrary().forEach { (uri, _) ->
+                // 传 dir 给 scanLibrary:forceDir 场景(选目录后立即同步)不依赖 DataStore 异步写入
+                libraryRepo.scanLibrary(dir).forEach { (uri, _) ->
                     if (bookRepo.isRemoved(uri)) return@forEach
                     val book = bookRepo.addBook(uri)
                     if (book != null && titleCleaner != null) {
