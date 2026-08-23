@@ -1,7 +1,12 @@
 package com.folio.read.ui.components
 
-import androidx.compose.animation.Crossfade
+import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.interaction.Interaction
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.material3.Icon
@@ -35,7 +40,9 @@ private class SilentInteractionSource : MutableInteractionSource {
  * 底部导航栏,移植自 Finito 的 AppNavBar,后对齐 Book's Story。
  * 文字常显(alwaysShowLabel 默认 true):去掉 Grit 的"选中上浮+文字渐显",
  * 避免与图标填充切换、胶囊展开三层选中动画叠加过乱。
- * 现动效分层:胶囊展开=位置、图标填充=激活态(涟漪已禁用)。
+ * 现动效分层:胶囊展开=位置、图标切换=激活态(涟漪已禁用)。
+ * 图标切换用 AnimatedContent 缩放+淡入(非 Crossfade):描边/实心两图标轮廓相同,
+ * 纯 Crossfade 叠加后视觉近硬切;缩放弹出才有可感知的"生长"感。
  */
 @Composable
 fun AppNavBar(
@@ -56,9 +63,15 @@ fun AppNavBar(
                     }
                 },
                 icon = {
-                    Crossfade(
+                    // 选中图标从 85% 放大弹出 + 淡入;未选中反向缩小淡出
+                    AnimatedContent(
                         targetState = selected,
-                        animationSpec = tween(150),
+                        transitionSpec = {
+                            (scaleIn(tween(200), initialScale = 0.85f) + fadeIn(tween(200)))
+                                .togetherWith(
+                                    scaleOut(tween(200), targetScale = 0.85f) + fadeOut(tween(200))
+                                )
+                        },
                         label = "navIcon",
                     ) { isSelected ->
                         Icon(
