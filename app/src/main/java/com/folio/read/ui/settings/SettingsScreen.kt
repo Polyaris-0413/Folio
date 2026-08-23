@@ -280,18 +280,18 @@ fun SettingsScreen(
                                     Spacer(modifier = Modifier.height(12.dp))
                                     SingleChoiceSegmentedButtonRow(modifier = Modifier.fillMaxWidth()) {
                                         SegmentedButton(
-                                            selected = manualDark,
-                                            onClick = { onManualDarkChange(true) },
-                                            shape = SegmentedButtonDefaults.itemShape(index = 0, count = 2),
-                                        ) {
-                                            Text(text = stringResource(R.string.settings_theme_dark))
-                                        }
-                                        SegmentedButton(
                                             selected = !manualDark,
                                             onClick = { onManualDarkChange(false) },
-                                            shape = SegmentedButtonDefaults.itemShape(index = 1, count = 2),
+                                            shape = SegmentedButtonDefaults.itemShape(index = 0, count = 2),
                                         ) {
                                             Text(text = stringResource(R.string.settings_theme_light))
+                                        }
+                                        SegmentedButton(
+                                            selected = manualDark,
+                                            onClick = { onManualDarkChange(true) },
+                                            shape = SegmentedButtonDefaults.itemShape(index = 1, count = 2),
+                                        ) {
+                                            Text(text = stringResource(R.string.settings_theme_dark))
                                         }
                                     }
                                 }
