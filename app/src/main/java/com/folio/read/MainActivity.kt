@@ -306,7 +306,7 @@ private fun AppRoot() {
         )
     }
 
-    // 添加书库目录:SAF 目录选择器,选择后持久化;若自动同步已开启,选完立即同步一次
+    // 添加书库目录:SAF 目录选择器,选择后持久化;选完立即扫描添加(用户明确选择=无条件,不依赖自动同步开关)
     val addLibraryLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.OpenDocumentTree(),
     ) { uri ->
@@ -314,7 +314,7 @@ private fun AppRoot() {
             appScope.launch {
                 libraryRepo.setLibraryDir(uri)
             }
-            runShelfSync(forceDir = uri.toString())
+            runShelfSync(forceEnabled = true, forceDir = uri.toString())
         }
     }
 
