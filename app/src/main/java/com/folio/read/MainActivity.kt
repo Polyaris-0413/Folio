@@ -11,11 +11,14 @@ import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.compose.BackHandler
+import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.Crossfade
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
@@ -436,12 +439,17 @@ private fun AppRoot() {
             ) { innerPadding ->
                 val contentModifier = Modifier.padding(innerPadding)
 
-                // 同级 tab 内容切换淡入淡出(Large 档,与全局动画档位一致)
+                // 同级 tab 内容切换:FadeThrough 风格(淡入 + 0.975 微缩放),移植自 Book's Story;
+                // 时长仍用全局 Large 档(动画数值统一原则),不照搬其 250ms
                 // 注:曾尝试三页常驻组合+透明度切换,实测掉帧更差(隐藏重页面每帧绘制开销大于
                 // 切换时组合一次),已回滚;掉帧集中在切换到设置页的首帧组合。
-                Crossfade(
+                AnimatedContent(
                     targetState = selectedSection,
-                    animationSpec = tween(AnimationTokens.Large),
+                    transitionSpec = {
+                        (fadeIn(tween(AnimationTokens.Large)) +
+                            scaleIn(tween(AnimationTokens.Large), initialScale = 0.975f))
+                            .togetherWith(fadeOut(tween(AnimationTokens.Large)))
+                    },
                     label = "sectionContent",
                 ) { section ->
                     when (section) {
