@@ -150,6 +150,16 @@ private fun AppRoot() {
     // null=查询中(启动首帧不显示空态占位符,有书时避免闪几帧占位);empty=确实无书
     val books by bookRepo.books.collectAsState(initial = null)
 
+    // 阅读页返回后置顶:点开书那一刻不改书架(避免点击瞬间列表跳动割裂),
+    // 从阅读页返回书架时才刷新最近阅读时间,用户看到"刚读的书移到最前"
+    var readBookId by remember { mutableStateOf<Long?>(null) }
+    val readerLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.StartActivityForResult(),
+    ) {
+        readBookId?.let { id -> appScope.launch { bookRepo.markRead(id) } }
+        readBookId = null
+    }
+
     // 冷启动自动检查更新:有新版本且未被「关闭」忽略 → 直接弹对话框
     val updateChecker = remember { UpdateChecker() }
     val updateSettingsRepo = remember { UpdateSettingsRepository(context.applicationContext) }
@@ -466,9 +476,9 @@ private fun AppRoot() {
                                 // 先查源文件可读性:被外部删除/不可读时书架层弹框,不进阅读页
                                 appScope.launch {
                                     if (bookRepo.isReadable(book)) {
-                                        // 点开即置顶:刷新最近阅读时间,书架按此排序
-                                        bookRepo.markRead(book.id)
-                                        context.startActivity(
+                                        // 记录打开的书,返回书架时再置顶(避免点击瞬间列表跳动)
+                                        readBookId = book.id
+                                        readerLauncher.launch(
                                             Intent(context, ReaderActivity::class.java)
                                                 .putExtra(ReaderActivity.EXTRA_BOOK_ID, book.id)
                                                 .putExtra(ReaderActivity.EXTRA_DARK_THEME, darkTheme),
