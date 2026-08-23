@@ -58,8 +58,9 @@ import kotlin.math.floor
 /**
  * 封面渐变:官方 TonalPalette(Google material-color-utilities)按书标识哈希生成,每本书专属不撞色。
  * 色相跳过 55..100° 黄绿段(低 chroma 下呈土色,观感差);chroma 36 = 官方「表达色」档;
- * tone 45→30 上浅下深,白字对比度全程 ≥ 5.37:1(过 WCAG 4.5:1 普通文本线,
- * 依据 tone 即 CIE L*,对比度=(1.05)/(Y+0.05),Y=((L*+16)/116)³)。
+ * tone 50→35 上浅下深:白字对比度上端 ≈4.49:1、下端 ≈7.78:1,覆盖大文本 3:1 与普通文本 4.5:1
+ * (依据 tone 即 CIE L*,对比度=(1.05)/(Y+0.05),Y=((L*+16)/116)³)。
+ * 曾试 45→30(对比度最稳但整体偏暗,用户感觉暗),回退到 50→35 折中档。
  * 种子用 dedupKey(文件稳定标识)而非书名:书名净化(本地/AI)改变时颜色不跳变,
  * 颜色始终是"这本书"的身份色而非"这个名字"的。
  */
@@ -69,8 +70,8 @@ private fun bookCoverGradient(seed: String): List<Color> {
     val hue = if (raw < 55) raw.toDouble() else (raw + 45).toDouble()
     val palette = TonalPalette.fromHueAndChroma(hue, 36.0)
     return listOf(
-        Color(palette.tone(45)),
-        Color(palette.tone(30)),
+        Color(palette.tone(50)),
+        Color(palette.tone(35)),
     )
 }
 
