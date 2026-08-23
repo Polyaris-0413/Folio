@@ -27,6 +27,8 @@
 ## 贡献
 欢迎提交 [Issue](https://github.com/Polyaris-0413/Folio/issues) 或 [Pull Request](https://github.com/Polyaris-0413/Folio/pulls)
 
+或者，可以[请作者喝一杯咖啡☕️](https://ifdian.net/a/Polyaris)
+
 ## 开源许可
 
 本项目基于 [GPL-3.0](LICENSE) 发布
