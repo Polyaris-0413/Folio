@@ -18,7 +18,11 @@
 * 在线更新
 
 ## 截图
-这个一会再写
+<p align="center">
+  <img width="32%" src="https://github.com/user-attachments/assets/7a6b3e7b-c6c0-423e-93ca-b66dea79ca68" />
+  <img width="32%" src="https://github.com/user-attachments/assets/6dee7524-b905-4334-9a65-34577bc39020" />
+  <img width="32%" src="https://github.com/user-attachments/assets/a38e42cb-c1be-4a09-9c50-3de6103c71b4" />
+</p>
 
 ## 下载
 请前往 [Release 页面](https://github.com/Polyaris-0413/Folio/releases) 下载最新版本
