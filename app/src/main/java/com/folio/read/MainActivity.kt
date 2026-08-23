@@ -42,6 +42,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -153,10 +154,15 @@ private fun AppRoot() {
     // 阅读页返回后置顶:点开书那一刻不改书架(避免点击瞬间列表跳动割裂),
     // 从阅读页返回书架时才刷新最近阅读时间,用户看到"刚读的书移到最前"
     var readBookId by remember { mutableStateOf<Long?>(null) }
+    // 读过书返回书架时 +1,驱动书架滚回顶部(刚读的书已置顶第 1 位)
+    var scrollToTopSignal by remember { mutableIntStateOf(0) }
     val readerLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.StartActivityForResult(),
     ) {
-        readBookId?.let { id -> appScope.launch { bookRepo.markRead(id) } }
+        readBookId?.let { id ->
+            appScope.launch { bookRepo.markRead(id) }
+            scrollToTopSignal++
+        }
         readBookId = null
     }
 
@@ -466,6 +472,7 @@ private fun AppRoot() {
                             books = books,
                             shelfLayout = shelfLayout,
                             selectedBookIds = selectedBookIds,
+                            scrollToTopSignal = scrollToTopSignal,
                             onToggleSelect = { book ->
                                 selectedBookIds =
                                     if (book.id in selectedBookIds) selectedBookIds - book.id

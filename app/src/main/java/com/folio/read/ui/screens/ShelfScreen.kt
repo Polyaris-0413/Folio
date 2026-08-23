@@ -27,11 +27,13 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
+import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -83,11 +85,15 @@ fun ShelfScreen(
     shelfLayout: ShelfLayout,
     /** 选择模式(长按进入):选中的书 id 集合,非空时点击卡片=切换选中、顶栏显示删除 */
     selectedBookIds: Set<Long>,
+    /** 读过书返回书架时 +1,触发滚回顶部(刚读的书已置顶第 1 位,让用户直接看到) */
+    scrollToTopSignal: Int = 0,
     onToggleSelect: (Book) -> Unit,
     onAddBook: () -> Unit,
     onOpenBook: (Book) -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    // 显式滚动状态:读过书返回时滚回顶部(见下方 LaunchedEffect),切 tab 不触发保持位置
+    val gridState = rememberLazyGridState()
     Box(
         modifier = modifier
             .fillMaxSize()
@@ -103,8 +109,15 @@ fun ShelfScreen(
                 // 自适应:单元格最小 152dp,保证封面与两行书名有足够宽度,避免列数过多文字被截断
                 ShelfLayoutMode.ADAPTIVE -> GridCells.Adaptive(minSize = 152.dp)
             }
+            // 读过书返回时滚回顶部(scrollToTopSignal 每次 +1);需等数据就绪(books 非空)
+            LaunchedEffect(scrollToTopSignal, books) {
+                if (scrollToTopSignal > 0 && books != null) {
+                    gridState.scrollToItem(0)
+                }
+            }
             LazyVerticalGrid(
                 columns = columns,
+                state = gridState,
                 modifier = Modifier.fillMaxSize(),
                 contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 16.dp, bottom = 16.dp),
                 horizontalArrangement = Arrangement.spacedBy(12.dp),
