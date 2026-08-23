@@ -82,7 +82,7 @@ import com.folio.read.data.PageTurnMode
 import com.folio.read.data.PageTurnSettings
 import com.folio.read.data.PageTurnSettingsRepository
 import com.folio.read.ui.components.FolioTopBar
-import com.folio.read.ui.components.detachedItemShape
+import com.folio.read.ui.components.menuShape
 import com.folio.read.ui.theme.AnimationTokens
 import com.folio.read.ui.theme.FolioSeedColor
 import com.folio.read.ui.theme.FolioTheme
@@ -471,7 +471,8 @@ private fun ReaderPager(
                         expanded = moreMenuExpanded,
                         onDismissRequest = { moreMenuExpanded = false },
                         containerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
-                        shape = detachedItemShape(),
+                        // 圆角 = M3 菜单档(small 8dp)
+                        shape = menuShape,
                     ) {
                         DropdownMenuItem(
                             text = { Text(text = stringResource(R.string.reader_tts)) },

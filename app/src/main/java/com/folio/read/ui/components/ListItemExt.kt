@@ -21,13 +21,17 @@ import androidx.compose.ui.unit.dp
  */
 
 private const val CONNECTED_CORNER_RADIUS = 4
-private const val END_CORNER_RADIUS = 16
+// M3 形状 token:卡片 = medium 12dp,菜单 = small 8dp(见 material-3 规范)
+private const val END_CORNER_RADIUS = 12
 
 /** 组内贴合处的圆角(与相邻 item 拼接) */
 val connectedCornerRadius: Dp = CONNECTED_CORNER_RADIUS.dp
 
-/** 组外端的大圆角 */
+/** 组外端的圆角(M3 卡片档 medium = 12dp) */
 val endCornerRadius: Dp = END_CORNER_RADIUS.dp
+
+/** 菜单圆角(M3 菜单档 small = 8dp) */
+val menuShape: Shape = RoundedCornerShape(8.dp)
 
 /** 拼接组内 item 的间距(圆角贴合处的缝隙) */
 val groupItemSpacing: Dp = 2.dp

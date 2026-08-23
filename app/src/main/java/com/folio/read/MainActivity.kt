@@ -77,7 +77,7 @@ import com.folio.read.data.ShelfSettingsRepository
 import com.folio.read.ui.components.AppNavBar
 import com.folio.read.ui.components.FolioTopBar
 import com.folio.read.ui.components.UpdateDialog
-import com.folio.read.ui.components.detachedItemShape
+import com.folio.read.ui.components.menuShape
 import com.folio.read.ui.library.LibraryAddActivity
 import com.folio.read.ui.navigation.AppSections
 import com.folio.read.ui.reader.ReaderActivity
@@ -376,8 +376,8 @@ private fun AppRoot() {
                                             onDismissRequest = { shelfMenuExpanded = false },
                                             // 容器色比顶栏(surfaceContainer)高一档,凸显菜单浮起的层级
                                             containerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
-                                            // 圆角与全局卡片语言一致(独立项 = 全 16dp)
-                                            shape = detachedItemShape(),
+                                            // 圆角 = M3 菜单档(small 8dp)
+                                            shape = menuShape,
                                         ) {
                                             DropdownMenuItem(
                                                 text = { Text(text = stringResource(R.string.shelf_add_book)) },

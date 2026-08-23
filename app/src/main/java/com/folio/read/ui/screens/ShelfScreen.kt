@@ -58,7 +58,8 @@ import kotlin.math.floor
 /**
  * 封面渐变:官方 TonalPalette(Google material-color-utilities)按书标识哈希生成,每本书专属不撞色。
  * 色相跳过 55..100° 黄绿段(低 chroma 下呈土色,观感差);chroma 36 = 官方「表达色」档;
- * tone 60→40 上浅下深,白字+阴影保证可读(对比度依赖深底)。
+ * tone 45→30 上浅下深,白字对比度全程 ≥ 5.37:1(过 WCAG 4.5:1 普通文本线,
+ * 依据 tone 即 CIE L*,对比度=(1.05)/(Y+0.05),Y=((L*+16)/116)³)。
  * 种子用 dedupKey(文件稳定标识)而非书名:书名净化(本地/AI)改变时颜色不跳变,
  * 颜色始终是"这本书"的身份色而非"这个名字"的。
  */
@@ -68,8 +69,8 @@ private fun bookCoverGradient(seed: String): List<Color> {
     val hue = if (raw < 55) raw.toDouble() else (raw + 45).toDouble()
     val palette = TonalPalette.fromHueAndChroma(hue, 36.0)
     return listOf(
-        Color(palette.tone(60)),
-        Color(palette.tone(40)),
+        Color(palette.tone(45)),
+        Color(palette.tone(30)),
     )
 }
 
@@ -227,7 +228,8 @@ private fun BookCard(
     modifier: Modifier = Modifier,
 ) {
     val gradient = bookCoverGradient(book.dedupKey.ifBlank { book.title })
-    val shape = RoundedCornerShape(8.dp)
+    // M3 形状 token:卡片 = medium 12dp
+    val shape = RoundedCornerShape(12.dp)
     // 选中反馈:罩色透明度 + 边框颜色过渡,出现/消失淡入淡出
     val overlayAlpha by animateFloatAsState(
         targetValue = if (selected) 0.25f else 0f,
@@ -281,7 +283,8 @@ private fun BookRowCard(
     modifier: Modifier = Modifier,
 ) {
     val gradient = bookCoverGradient(book.dedupKey.ifBlank { book.title })
-    val shape = RoundedCornerShape(8.dp)
+    // M3 形状 token:卡片 = medium 12dp
+    val shape = RoundedCornerShape(12.dp)
     // 选中反馈:罩色透明度 + 边框颜色过渡,出现/消失淡入淡出
     val overlayAlpha by animateFloatAsState(
         targetValue = if (selected) 0.25f else 0f,
