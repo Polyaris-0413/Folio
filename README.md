@@ -25,3 +25,5 @@
 - [legado](https://github.com/gedoor/legado)
 - [Book's Story](https://github.com/Acclorite/book-story)
 - [Grit](https://github.com/shub39/Grit)
+
+详见设置 → 关于 → 开源声明
