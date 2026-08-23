@@ -29,7 +29,7 @@
 
 欢迎提交 [Issue](https://github.com/Polyaris-0413/Folio/issues) 或 [Pull Request](https://github.com/Polyaris-0413/Folio/pulls)
 
-或者，也可以[请作者喝一杯咖啡]☕️(https://ifdian.net/a/Polyaris)
+或者，也可以[请作者喝一杯咖啡](https://ifdian.net/a/Polyaris)☕️
 
 ## 开源许可
 
