@@ -20,6 +20,8 @@ data class Book(
     /** 归一化去重键:URI 中 /document/ 之后的文档 ID,同一文件跨入口(手动/书库)一致 */
     val dedupKey: String = "",
     val addedAt: Long = System.currentTimeMillis(),
+    /** 最近阅读时间(点开书即更新);书架按此倒序,新加入默认=当前时间也在前 */
+    val lastReadAt: Long = addedAt,
     /** 旧阅读进度 0..1(章节模型前的字段,保留列兼容,不再写入) */
     val progress: Float = 0f,
     /** 阅读位置:章节号(章节模型按 ChapterDetector 块首划分) */

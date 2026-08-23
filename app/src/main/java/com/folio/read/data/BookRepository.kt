@@ -23,6 +23,10 @@ class BookRepository(context: Context) {
     suspend fun updatePosition(id: Long, chapterIndex: Int, position: Int) =
         dao.updatePosition(id, chapterIndex, position)
 
+    /** 点开书时刷新最近阅读时间(书架置顶);传入当前时间戳 */
+    suspend fun markRead(id: Long, timestamp: Long = System.currentTimeMillis()) =
+        dao.updateLastReadAt(id, timestamp)
+
     /**
      * 从 SAF 选中的文件创建书籍(仅元数据,正文解析由阅读页负责);
      * 重复文件返回 null。filePath 存原始 URI(保持可读),dedupKey 归一化去重。

@@ -466,6 +466,8 @@ private fun AppRoot() {
                                 // 先查源文件可读性:被外部删除/不可读时书架层弹框,不进阅读页
                                 appScope.launch {
                                     if (bookRepo.isReadable(book)) {
+                                        // 点开即置顶:刷新最近阅读时间,书架按此排序
+                                        bookRepo.markRead(book.id)
                                         context.startActivity(
                                             Intent(context, ReaderActivity::class.java)
                                                 .putExtra(ReaderActivity.EXTRA_BOOK_ID, book.id)
