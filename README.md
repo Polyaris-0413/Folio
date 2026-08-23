@@ -25,11 +25,11 @@
 由于未满足上架条件，本应用不会发布在 Google Play 及其他应用商店
 
 ## 贡献
-如果你有这个意愿：
+如果你有相关意愿：
 
 欢迎提交 [Issue](https://github.com/Polyaris-0413/Folio/issues) 或 [Pull Request](https://github.com/Polyaris-0413/Folio/pulls)
 
-或者，可以[请作者喝一杯咖啡☕️](https://ifdian.net/a/Polyaris)
+或者，也可以[请作者喝一杯咖啡]☕️(https://ifdian.net/a/Polyaris)
 
 ## 开源许可
 
