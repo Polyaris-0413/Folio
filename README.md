@@ -3,6 +3,9 @@
 
 一个遵循 Material Design 设计规范的本地阅读器
 
+基于 Kotlin + Jetpack Compose 构建
+适用于 Android 12 及以上的系统
+
 ## 功能
 
 
