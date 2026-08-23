@@ -36,9 +36,7 @@
 - [Book's Story](https://github.com/Acclorite/book-story)
 - [Grit](https://github.com/shub39/Grit)
 
-详见设置 → 关于 → 开源声明
-
-在此感谢上述的所有开源项目
+在此感谢上述的所有项目
 
 因为你们的付出  
 才让我拥有了得以站在巨人肩膀上的机会，Respect🫡
