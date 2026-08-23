@@ -24,7 +24,6 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ListItem
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -43,6 +42,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.core.view.WindowCompat
 import com.folio.read.R
+import com.folio.read.ui.components.FolioAlertDialog
 import com.folio.read.ui.components.FolioTopBar
 import com.folio.read.ui.components.detachedItemShape
 import com.folio.read.ui.components.endItemShape
@@ -173,7 +173,7 @@ private fun LicensesScreenContent(
 
     selectedLibrary?.let { library ->
         val license = library.licenses.firstOrNull()
-        AlertDialog(
+        FolioAlertDialog(
             onDismissRequest = { selectedLibrary = null },
             // 标题用项目名,协议名与全文放正文
             title = { Text(text = library.name) },

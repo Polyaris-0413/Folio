@@ -75,6 +75,7 @@ import com.folio.read.data.ShelfSyncSettings
 import com.folio.read.data.ShelfSyncSettingsRepository
 import com.folio.read.data.ShelfSettingsRepository
 import com.folio.read.ui.components.AppNavBar
+import com.folio.read.ui.components.FolioAlertDialog
 import com.folio.read.ui.components.FolioTopBar
 import com.folio.read.ui.components.UpdateDialog
 import com.folio.read.ui.components.menuShape
@@ -374,9 +375,7 @@ private fun AppRoot() {
                                             DropdownMenu(
                                                 expanded = shelfMenuExpanded,
                                             onDismissRequest = { shelfMenuExpanded = false },
-                                            // 容器色比顶栏(surfaceContainer)高一档,凸显菜单浮起的层级
-                                            containerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
-                                            // 圆角 = M3 菜单档(small 8dp)
+                                            // 容器色用 M3 默认 surfaceContainer,圆角 = M3 菜单档(small 8dp)
                                             shape = menuShape,
                                         ) {
                                             DropdownMenuItem(
@@ -537,7 +536,7 @@ private fun AppRoot() {
 
             // 移除确认:仅从书架移除记录,不删除源文件
             if (showDeleteConfirm) {
-                AlertDialog(
+                FolioAlertDialog(
                     onDismissRequest = { showDeleteConfirm = false },
                     title = { Text(text = stringResource(R.string.shelf_delete_confirm_title)) },
                     text = {
@@ -549,9 +548,6 @@ private fun AppRoot() {
                             },
                         )
                     },
-                    containerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
-                    titleContentColor = MaterialTheme.colorScheme.primary,
-                    textContentColor = MaterialTheme.colorScheme.onSurfaceVariant,
                     confirmButton = {
                         TextButton(
                             onClick = {
@@ -577,13 +573,10 @@ private fun AppRoot() {
             // 提供「移除」一步清掉坏记录(文件都没了,进度无意义,无需二次确认)
             val failedBook = openFailedBook
             if (failedBook != null) {
-                AlertDialog(
+                FolioAlertDialog(
                     onDismissRequest = { openFailedBook = null },
                     title = { Text(text = stringResource(R.string.book_open_failed_title)) },
                     text = { Text(text = stringResource(R.string.book_open_failed_message)) },
-                    containerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
-                    titleContentColor = MaterialTheme.colorScheme.primary,
-                    textContentColor = MaterialTheme.colorScheme.onSurfaceVariant,
                     confirmButton = {
                         TextButton(onClick = { openFailedBook = null }) {
                             Text(text = stringResource(R.string.book_open_failed_ok))
@@ -607,7 +600,7 @@ private fun AppRoot() {
                 val renaming = books?.firstOrNull { it.id == selectedBookIds.firstOrNull() }
                 if (renaming != null) {
                     var renameText by remember(renaming.id) { mutableStateOf(renaming.title) }
-                    AlertDialog(
+                    FolioAlertDialog(
                         onDismissRequest = { showRenameDialog = false },
                         title = { Text(text = stringResource(R.string.shelf_rename_dialog_title)) },
                         text = {
@@ -619,9 +612,6 @@ private fun AppRoot() {
                                 modifier = Modifier.fillMaxWidth(),
                             )
                         },
-                        containerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
-                        titleContentColor = MaterialTheme.colorScheme.primary,
-                        textContentColor = MaterialTheme.colorScheme.onSurfaceVariant,
                         confirmButton = {
                             TextButton(
                                 enabled = renameText.isNotBlank(),

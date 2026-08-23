@@ -32,7 +32,6 @@ import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
@@ -81,6 +80,7 @@ import com.folio.read.data.BookRepository
 import com.folio.read.data.PageTurnMode
 import com.folio.read.data.PageTurnSettings
 import com.folio.read.data.PageTurnSettingsRepository
+import com.folio.read.ui.components.FolioAlertDialog
 import com.folio.read.ui.components.FolioTopBar
 import com.folio.read.ui.components.menuShape
 import com.folio.read.ui.theme.AnimationTokens
@@ -241,13 +241,10 @@ private fun ReaderScreen(
 
     // 打开失败:说明情况/原因/解法,关掉直接返回书架(不走 handleBack,避免用空进度覆盖原阅读位置)
     if (loadFailed) {
-        AlertDialog(
+        FolioAlertDialog(
             onDismissRequest = onBack,
             title = { Text(text = stringResource(R.string.book_open_failed_title)) },
             text = { Text(text = stringResource(R.string.book_open_failed_message)) },
-            containerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
-            titleContentColor = MaterialTheme.colorScheme.primary,
-            textContentColor = MaterialTheme.colorScheme.onSurfaceVariant,
             confirmButton = {
                 TextButton(onClick = onBack) {
                     Text(text = stringResource(R.string.book_open_failed_ok))
@@ -470,8 +467,7 @@ private fun ReaderPager(
                     DropdownMenu(
                         expanded = moreMenuExpanded,
                         onDismissRequest = { moreMenuExpanded = false },
-                        containerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
-                        // 圆角 = M3 菜单档(small 8dp)
+                        // 容器色用 M3 默认 surfaceContainer,圆角 = M3 菜单档(small 8dp)
                         shape = menuShape,
                     ) {
                         DropdownMenuItem(

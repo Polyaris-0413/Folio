@@ -1,7 +1,5 @@
 package com.folio.read.ui.components
 
-import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -18,13 +16,10 @@ fun UpdateDialog(
     onDownload: () -> Unit,
     onDismiss: () -> Unit,
 ) {
-    AlertDialog(
+    FolioAlertDialog(
         onDismissRequest = onDismiss,
         title = { Text(text = stringResource(R.string.update_found_title)) },
         text = { Text(text = stringResource(R.string.update_found_message, version)) },
-        containerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
-        titleContentColor = MaterialTheme.colorScheme.primary,
-        textContentColor = MaterialTheme.colorScheme.onSurfaceVariant,
         confirmButton = {
             TextButton(onClick = onDownload) {
                 Text(text = stringResource(R.string.update_download))
