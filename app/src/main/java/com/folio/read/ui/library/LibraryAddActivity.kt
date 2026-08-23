@@ -42,7 +42,6 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.core.view.WindowCompat
-import androidx.documentfile.provider.DocumentFile
 import com.folio.read.R
 import com.folio.read.data.AiConfig
 import com.folio.read.data.AiSettingsRepository
@@ -124,18 +123,11 @@ private fun LibraryAddContent(
         }
     }
 
-    // 扫描书库目录下的 txt(IO 线程,避免大目录卡 UI)
+    // 扫描书架目录下的 txt(复用 LibraryRepository.scanLibrary;IO 线程,避免大目录卡 UI)
     LaunchedEffect(Unit) {
-        val dir = libraryRepo.libraryDir.first()
-        candidates = if (dir == null) {
-            emptyList()
-        } else {
-            withContext(Dispatchers.IO) {
-                val treeUri = Uri.parse(dir)
-                DocumentFile.fromTreeUri(context, treeUri)?.listFiles()
-                    ?.filter { it.isFile && it.name?.endsWith(".txt", ignoreCase = true) == true }
-                    ?.map { FileCandidate(it.uri, it.name ?: context.getString(R.string.unnamed)) }
-                    ?: emptyList()
+        candidates = withContext(Dispatchers.IO) {
+            libraryRepo.scanLibrary().map { (uri, name) ->
+                FileCandidate(uri, name.ifBlank { context.getString(R.string.unnamed) })
             }
         }
     }

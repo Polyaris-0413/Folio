@@ -71,6 +71,8 @@ import com.folio.read.data.compareVersions
 import com.folio.read.data.PageTurnSettingsRepository
 import com.folio.read.data.ShelfLayout
 import com.folio.read.data.ShelfLayoutMode
+import com.folio.read.data.ShelfSyncSettings
+import com.folio.read.data.ShelfSyncSettingsRepository
 import com.folio.read.data.ShelfSettingsRepository
 import com.folio.read.ui.components.AppNavBar
 import com.folio.read.ui.components.FolioTopBar
@@ -174,6 +176,10 @@ private fun AppRoot() {
     val libraryRepo = remember { LibraryRepository(context.applicationContext) }
     val libraryDir by libraryRepo.libraryDir.collectAsState(initial = null)
 
+    // 自动同步书架:开关开且已选书架目录 → 启动时扫描并加入(去重自动跳过,净化同手动添加)
+    val shelfSyncRepo = remember { ShelfSyncSettingsRepository(context.applicationContext) }
+    val shelfSync by shelfSyncRepo.shelfSync.collectAsState(initial = ShelfSyncSettings())
+
     // 书库目录名(设置页显示用)
     var libraryDirName by remember { mutableStateOf<String?>(null) }
     LaunchedEffect(libraryDir) {
@@ -215,6 +221,25 @@ private fun AppRoot() {
         if (titleClean && aiConfig.isConfigured) BookTitleCleaner(aiConfig) else null
     }
 
+    // 自动同步书架:扫描书架目录,把未加入的书加进来(去重自动跳过,净化同手动添加)。
+    // 默认读 DataStore 判断开关/目录;调用方在「刚写入配置」的场景传 force 参数跳过读取,
+    // 避免 DataStore 异步写入未完成时读到旧值(null/关)误判跳过
+    fun runShelfSync(forceEnabled: Boolean? = null, forceDir: String? = null) {
+        appScope.launch {
+            val enabled = forceEnabled ?: shelfSyncRepo.shelfSync.first().enabled
+            val dir = forceDir ?: libraryRepo.libraryDir.first()
+            if (enabled && dir != null) {
+                libraryRepo.scanLibrary().forEach { (uri, _) ->
+                    val book = bookRepo.addBook(uri)
+                    if (book != null && titleCleaner != null) {
+                        bookRepo.aiCleanBook(book, titleCleaner)
+                    }
+                }
+            }
+        }
+    }
+    LaunchedEffect(Unit) { runShelfSync() }
+
     // 添加书籍:SAF 文件选择器;重复文件(唯一索引拦截)提示用户
     val addBookLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.OpenDocument(),
@@ -253,7 +278,7 @@ private fun AppRoot() {
         )
     }
 
-    // 添加书库目录:SAF 目录选择器,选择后持久化即可(不自动跳转,书架添加由用户另行发起)
+    // 添加书库目录:SAF 目录选择器,选择后持久化;若自动同步已开启,选完立即同步一次
     val addLibraryLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.OpenDocumentTree(),
     ) { uri ->
@@ -261,6 +286,7 @@ private fun AppRoot() {
             appScope.launch {
                 libraryRepo.setLibraryDir(uri)
             }
+            runShelfSync(forceDir = uri.toString())
         }
     }
 
@@ -293,51 +319,60 @@ private fun AppRoot() {
                     FolioTopBar(
                         titleRes = selectedSection.labelRes,
                         actions = {
-                            // 书架页操作:overflow 菜单 = 手动添加 / 添加书库;
-                            // 选择模式(长按书)时 overflow 交叉淡出,删除图标在同一位置淡入。
+                            // 顶栏操作:仅书架页显示——未选中=overflow 菜单,选中=重命名/删除;
+                            // 其他页面=空白(切页淡出隐藏,不留 overflow)。
                             // 固定宽度(两图标)让过渡期容器尺寸不变,旧图标不因内容叠放漂移
+                            val topBarActionState = when {
+                                selectedSection != AppSections.Shelf -> 0
+                                selectedBookIds.isNotEmpty() -> 1
+                                else -> 2
+                            }
                             Crossfade(
-                                targetState = selectedSection == AppSections.Shelf && selectedBookIds.isNotEmpty(),
-                                animationSpec = tween(AnimationTokens.Medium),
+                                targetState = topBarActionState,
+                                // 与顶栏标题/内容区切换同档(Large):切页时标题与操作按钮同节奏淡出
+                                animationSpec = tween(AnimationTokens.Large),
                                 modifier = Modifier.width(96.dp),
-                            ) { selecting ->
+                            ) { state ->
                                 // 外层占满 Box:在 BoxScope 里用通用 align 靠右(Crossfade 内容
                                 // 的 AnimatedContentScope.align 与外层 RowScope.align 重名冲突)
                                 Box(modifier = Modifier.fillMaxSize()) {
-                                if (selecting) {
-                                    // Crossfade 内容不在 RowScope,两图标须包 Row 才并排
-                                    Row(modifier = Modifier.align(Alignment.CenterEnd)) {
-                                        // 重命名仅单选时可用(无批量重命名场景),淡入淡出与其他图标统一
-                                        AnimatedVisibility(
-                                            visible = selectedBookIds.size == 1,
-                                            enter = fadeIn(animationSpec = tween(AnimationTokens.Medium)),
-                                            exit = fadeOut(animationSpec = tween(AnimationTokens.Medium)),
-                                        ) {
-                                            IconButton(onClick = { showRenameDialog = true }) {
+                                when (state) {
+                                    0 -> Unit // 非书架页:无操作按钮(旧内容淡出)
+                                    1 -> {
+                                        // Crossfade 内容不在 RowScope,两图标须包 Row 才并排
+                                        Row(modifier = Modifier.align(Alignment.CenterEnd)) {
+                                            // 重命名仅单选时可用(无批量重命名场景),淡入淡出与顶栏同档
+                                            AnimatedVisibility(
+                                                visible = selectedBookIds.size == 1,
+                                                enter = fadeIn(animationSpec = tween(AnimationTokens.Large)),
+                                                exit = fadeOut(animationSpec = tween(AnimationTokens.Large)),
+                                            ) {
+                                                IconButton(onClick = { showRenameDialog = true }) {
+                                                    Icon(
+                                                        painter = painterResource(R.drawable.ic_shelf_rename),
+                                                        contentDescription = stringResource(R.string.shelf_rename),
+                                                    )
+                                                }
+                                            }
+                                            IconButton(onClick = { showDeleteConfirm = true }) {
                                                 Icon(
-                                                    painter = painterResource(R.drawable.ic_shelf_rename),
-                                                    contentDescription = stringResource(R.string.shelf_rename),
+                                                    painter = painterResource(R.drawable.ic_shelf_delete),
+                                                    contentDescription = stringResource(R.string.shelf_delete),
                                                 )
                                             }
                                         }
-                                        IconButton(onClick = { showDeleteConfirm = true }) {
-                                            Icon(
-                                                painter = painterResource(R.drawable.ic_shelf_delete),
-                                                contentDescription = stringResource(R.string.shelf_delete),
-                                            )
-                                        }
                                     }
-                                } else {
-                                    Box(modifier = Modifier.align(Alignment.CenterEnd)) {
-                                        var shelfMenuExpanded by remember { mutableStateOf(false) }
-                                        IconButton(onClick = { shelfMenuExpanded = true }) {
-                                            Icon(
-                                                painter = painterResource(R.drawable.ic_more_vert),
-                                                contentDescription = stringResource(R.string.shelf_more),
-                                            )
-                                        }
-                                        DropdownMenu(
-                                            expanded = shelfMenuExpanded,
+                                    else -> {
+                                        Box(modifier = Modifier.align(Alignment.CenterEnd)) {
+                                            var shelfMenuExpanded by remember { mutableStateOf(false) }
+                                            IconButton(onClick = { shelfMenuExpanded = true }) {
+                                                Icon(
+                                                    painter = painterResource(R.drawable.ic_more_vert),
+                                                    contentDescription = stringResource(R.string.shelf_more),
+                                                )
+                                            }
+                                            DropdownMenu(
+                                                expanded = shelfMenuExpanded,
                                             onDismissRequest = { shelfMenuExpanded = false },
                                             // 容器色比顶栏(surfaceContainer)高一档,凸显菜单浮起的层级
                                             containerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
@@ -388,6 +423,7 @@ private fun AppRoot() {
                                     }
                                 }
                                 }
+                            }
                             }
                         },
                     )
@@ -448,6 +484,12 @@ private fun AppRoot() {
                             darkTheme = darkTheme,
                             libraryDirName = libraryDirName,
                             onSelectLibrary = { addLibraryLauncher.launch(null) },
+                            shelfSync = shelfSync.enabled,
+                            onShelfSyncChange = { enabled ->
+                                appScope.launch { shelfSyncRepo.setEnabled(enabled) }
+                                // 开启时立即同步一次(关闭只停后续,不清理已有书);force 跳过 DataStore 未写完的旧值
+                                if (enabled) runShelfSync(forceEnabled = true)
+                            },
                             shelfLayout = shelfLayout,
                             onShelfLayoutChange = { layout ->
                                 appScope.launch { shelfSettingsRepo.setShelfLayout(layout) }

@@ -147,6 +147,8 @@ fun SettingsScreen(
     darkTheme: Boolean,
     libraryDirName: String?,
     onSelectLibrary: () -> Unit,
+    shelfSync: Boolean,
+    onShelfSyncChange: (Boolean) -> Unit,
     shelfLayout: ShelfLayout,
     onShelfLayoutChange: (ShelfLayout) -> Unit,
     pageTurn: PageTurnSettings,
@@ -351,8 +353,21 @@ fun SettingsScreen(
                         },
                         colors = listItemColors(),
                         modifier = Modifier
-                            .clip(groupItemShape(0, 2))
+                            .clip(groupItemShape(0, 3))
                             .clickable { onSelectLibrary() },
+                    )
+                    ListItem(
+                        headlineContent = { Text(text = stringResource(R.string.settings_shelf_sync)) },
+                        supportingContent = { Text(text = stringResource(R.string.settings_shelf_sync_desc)) },
+                        leadingContent = { SettingsIcon(R.drawable.ic_settings_shelf_sync) },
+                        trailingContent = {
+                            Switch(
+                                checked = shelfSync,
+                                onCheckedChange = onShelfSyncChange,
+                            )
+                        },
+                        colors = listItemColors(),
+                        modifier = Modifier.clip(groupItemShape(1, 3)),
                     )
                     ListItem(
                         headlineContent = { Text(text = stringResource(R.string.settings_shelf_layout)) },
@@ -366,7 +381,7 @@ fun SettingsScreen(
                         },
                         colors = listItemColors(),
                         modifier = Modifier
-                            .clip(groupItemShape(1, 2))
+                            .clip(groupItemShape(2, 3))
                             .clickable { showLayoutDialog = true },
                     )
                 }
@@ -430,7 +445,7 @@ fun SettingsScreen(
                         },
                         colors = listItemColors(),
                         modifier = Modifier
-                            .clip(groupItemShape(0, 4))
+                            .clip(groupItemShape(0, 5))
                             .clickable { checkUpdate() },
                     )
                     ListItem(
@@ -444,10 +459,28 @@ fun SettingsScreen(
                         },
                         colors = listItemColors(),
                         modifier = Modifier
-                            .clip(groupItemShape(1, 4))
+                            .clip(groupItemShape(1, 5))
                             .clickable {
                                 context.startActivity(
                                     Intent(Intent.ACTION_VIEW, Uri.parse(GITHUB_REPO_URL)),
+                                )
+                            },
+                    )
+                    ListItem(
+                        headlineContent = { Text(text = stringResource(R.string.settings_about_sponsor)) },
+                        leadingContent = { SettingsIcon(R.drawable.ic_settings_sponsor) },
+                        trailingContent = {
+                            Icon(
+                                painter = painterResource(R.drawable.ic_arrow_right),
+                                contentDescription = null,
+                            )
+                        },
+                        colors = listItemColors(),
+                        modifier = Modifier
+                            .clip(groupItemShape(2, 5))
+                            .clickable {
+                                context.startActivity(
+                                    Intent(Intent.ACTION_VIEW, Uri.parse("https://ifdian.net/a/Polyaris")),
                                 )
                             },
                     )
@@ -462,7 +495,7 @@ fun SettingsScreen(
                         },
                         colors = listItemColors(),
                         modifier = Modifier
-                            .clip(groupItemShape(2, 4))
+                            .clip(groupItemShape(3, 5))
                             .clickable {
                                 context.startActivity(
                                     Intent(Intent.ACTION_VIEW, Uri.parse(GITHUB_ISSUES_URL)),
@@ -480,7 +513,7 @@ fun SettingsScreen(
                         },
                         colors = listItemColors(),
                         modifier = Modifier
-                            .clip(groupItemShape(3, 4))
+                            .clip(groupItemShape(4, 5))
                             .clickable {
                                 // 独立 Activity:主题跟随来源页面选择
                                 context.startActivity(

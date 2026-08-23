@@ -5,14 +5,19 @@ import android.content.Intent
 import android.net.Uri
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
+import androidx.documentfile.provider.DocumentFile
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.withContext
 
 private val Context.libraryDataStore by preferencesDataStore(name = "library_settings")
 
-/** 书库目录管理:登记要扫描的文件夹(SAF tree URI),供"书库添加"扫描使用 */
+/** 书库目录管理:登记要扫描的文件夹(SAF tree URI),供"书库添加"与自动同步使用 */
 class LibraryRepository(context: Context) {
 
     private val store = PrefsStore(context.libraryDataStore)
+    private val appContext = context.applicationContext
     private val contentResolver = context.contentResolver
 
     /** 当前登记的书库目录 URI(可为 null) */
@@ -25,6 +30,17 @@ class LibraryRepository(context: Context) {
             Intent.FLAG_GRANT_READ_URI_PERMISSION,
         )
         store.set(KEY_LIBRARY_DIR, uri.toString())
+    }
+
+    /** 扫描书架目录下的 txt 文件(一层);返回 (uri, 文件名) 列表。书库添加页与自动同步共用 */
+    suspend fun scanLibrary(): List<Pair<Uri, String>> {
+        val dir = libraryDir.first() ?: return emptyList()
+        return withContext(Dispatchers.IO) {
+            DocumentFile.fromTreeUri(appContext, Uri.parse(dir))?.listFiles()
+                ?.filter { it.isFile && it.name?.endsWith(".txt", ignoreCase = true) == true }
+                ?.map { it.uri to (it.name ?: "") }
+                ?: emptyList()
+        }
     }
 
     private companion object {

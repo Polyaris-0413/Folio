@@ -32,6 +32,8 @@
     <string name="settings_group_shelf">书架</string>
     <string name="settings_shelf_library">选择书架</string>
     <string name="settings_shelf_library_none">未选择</string>
+    <string name="settings_shelf_sync">自动同步书架</string>
+    <string name="settings_shelf_sync_desc">自动把书架中的新书加入阅读</string>
     <string name="settings_shelf_layout">书架排版</string>
     <string name="shelf_layout_one">单列</string>
     <string name="shelf_layout_adaptive">自适应</string>
@@ -49,6 +51,7 @@
     <string name="settings_about_repo">访问仓库</string>
     <string name="settings_about_feedback">问题反馈</string>
     <string name="settings_about_licenses">开源声明</string>
+    <string name="settings_about_sponsor">赞助作者</string>
     <string name="settings_about_licenses_empty">暂无开源协议信息</string>
     <string name="settings_about_update">检查更新</string>
     <string name="update_checking">正在检查更新…</string>
