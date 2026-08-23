@@ -20,7 +20,9 @@
 这个一会再写
 
 ## 下载
-[请前往 Release 页面 下载最新版本](https://github.com/Polyaris-0413/Folio/releases)
+请前往 [Release 页面](https://github.com/Polyaris-0413/Folio/releases) 下载最新版本
+
+由于未满足上架条件，本应用不会发布在 Google Play 及其他应用商店
 
 ## 贡献
 
