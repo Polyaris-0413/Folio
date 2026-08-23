@@ -4,6 +4,7 @@ import android.content.Context
 import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 
 private val Context.shelfSyncDataStore by preferencesDataStore(name = "shelf_sync_settings")
@@ -26,7 +27,15 @@ class ShelfSyncSettingsRepository(context: Context) {
         store.set(KEY_ENABLED, enabled)
     }
 
+    /** 是否已提示过「移除书籍不再自动加回」说明(首次开启时弹窗一次) */
+    suspend fun hasShownRemovalHint(): Boolean = store.flowOf(KEY_HINT_SHOWN, default = false).first()
+
+    suspend fun markRemovalHintShown() {
+        store.set(KEY_HINT_SHOWN, true)
+    }
+
     private companion object {
         val KEY_ENABLED = booleanPreferencesKey("enabled")
+        val KEY_HINT_SHOWN = booleanPreferencesKey("removal_hint_shown")
     }
 }

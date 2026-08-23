@@ -161,6 +161,8 @@ private fun AppRoot() {
     var readBookId by remember { mutableStateOf<Long?>(null) }
     // 读过书返回书架时 +1,驱动书架滚回顶部(刚读的书已置顶第 1 位)
     var scrollToTopSignal by remember { mutableIntStateOf(0) }
+    // 首次开启自动同步时的说明弹窗
+    var showShelfSyncHint by remember { mutableStateOf(false) }
     val readerLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.StartActivityForResult(),
     ) {
@@ -253,7 +255,9 @@ private fun AppRoot() {
             val enabled = forceEnabled ?: shelfSyncRepo.shelfSync.first().enabled
             val dir = forceDir ?: libraryRepo.libraryDir.first()
             if (enabled && dir != null) {
+                // 已移除的书(手动删除过)自动同步不再加回;手动添加会清除该记录
                 libraryRepo.scanLibrary().forEach { (uri, _) ->
+                    if (bookRepo.isRemoved(uri)) return@forEach
                     val book = bookRepo.addBook(uri)
                     if (book != null && titleCleaner != null) {
                         bookRepo.aiCleanBook(book, titleCleaner)
@@ -516,6 +520,15 @@ private fun AppRoot() {
                             shelfSync = shelfSync.enabled,
                             onShelfSyncChange = { enabled ->
                                 appScope.launch { shelfSyncRepo.setEnabled(enabled) }
+                                // 首次开启时说明「移除的书不会自动加回」(只提示一次)
+                                if (enabled) {
+                                    appScope.launch {
+                                        if (!shelfSyncRepo.hasShownRemovalHint()) {
+                                            showShelfSyncHint = true
+                                            shelfSyncRepo.markRemovalHintShown()
+                                        }
+                                    }
+                                }
                                 // 开启时立即同步一次(关闭只停后续,不清理已有书);force 跳过 DataStore 未写完的旧值
                                 if (enabled) runShelfSync(forceEnabled = true)
                             },
@@ -662,6 +675,20 @@ private fun AppRoot() {
                         },
                     )
                 }
+            }
+
+            // 首次开启自动同步说明:移除的书不会自动加回,手动添加才重新加入
+            if (showShelfSyncHint) {
+                FolioAlertDialog(
+                    onDismissRequest = { showShelfSyncHint = false },
+                    title = { Text(text = stringResource(R.string.shelf_sync_removal_hint_title)) },
+                    text = { Text(text = stringResource(R.string.shelf_sync_removal_hint_message)) },
+                    confirmButton = {
+                        TextButton(onClick = { showShelfSyncHint = false }) {
+                            Text(text = stringResource(R.string.shelf_sync_removal_hint_ok))
+                        }
+                    },
+                )
             }
         }
     }

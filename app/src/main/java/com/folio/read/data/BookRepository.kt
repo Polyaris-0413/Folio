@@ -14,6 +14,8 @@ class BookRepository(context: Context) {
     private val appContext = context.applicationContext
     private val dao = AppDatabase.getInstance(context).bookDao()
     private val contentResolver = context.contentResolver
+    /** 已移除书籍清单:删书时写入,手动添加时清除,自动同步时过滤 */
+    private val removedBooks = RemovedBooksRepository(appContext)
 
     val books: Flow<List<Book>> = dao.observeAll()
 
@@ -26,6 +28,10 @@ class BookRepository(context: Context) {
     /** 点开书时刷新最近阅读时间(书架置顶);传入当前时间戳 */
     suspend fun markRead(id: Long, timestamp: Long = System.currentTimeMillis()) =
         dao.updateLastReadAt(id, timestamp)
+
+    /** 该文件是否在「已移除清单」中(自动同步据此跳过);URI 归一化后比对 dedupKey */
+    suspend fun isRemoved(uri: Uri): Boolean =
+        normalizeKey(uri) in removedBooks.removedSet()
 
     /**
      * 从 SAF 选中的文件创建书籍(仅元数据,正文解析由阅读页负责);
@@ -53,8 +59,13 @@ class BookRepository(context: Context) {
         if (cleaned != book.title) dao.updateTitle(book.id, cleaned)
     }
 
-    /** 从书架移除书籍(仅移除记录,不删除源文件) */
+    /**
+     * 从书架移除书籍(仅移除记录,不删除源文件)。
+     * 同时记入「已移除清单」:自动同步不会再把它加回来(用户手动添加才清除)。
+     */
     suspend fun delete(id: Long) {
+        val book = dao.getBook(id)
+        if (book != null) removedBooks.addRemoved(book.dedupKey)
         dao.delete(id)
     }
 

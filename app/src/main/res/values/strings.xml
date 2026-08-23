@@ -33,6 +33,9 @@
     <string name="settings_shelf_library_none">未选择</string>
     <string name="settings_shelf_sync">自动同步书架</string>
     <string name="settings_shelf_sync_desc">自动把书架中的新书加入阅读</string>
+    <string name="shelf_sync_removal_hint_title">自动同步书架</string>
+    <string name="shelf_sync_removal_hint_message">开启后,书架目录里的书会自动加入阅读。\n如果某本书被移除,它不会自动加回来;想重新加入,手动添加即可。</string>
+    <string name="shelf_sync_removal_hint_ok">知道了</string>
     <string name="settings_shelf_layout">书架排版</string>
     <string name="shelf_layout_one">单列</string>
     <string name="shelf_layout_adaptive">自适应</string>
