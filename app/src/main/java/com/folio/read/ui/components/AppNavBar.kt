@@ -14,10 +14,10 @@ import com.folio.read.ui.navigation.AppSections
 import com.folio.read.ui.navigation.mainRoutes
 
 /**
- * 底部导航栏,移植自 Finito 的 AppNavBar。
- * 使用标准 Material3 NavigationBarItem(alwaysShowLabel = false),
- * 胶囊指示器 + 图标上浮 + label 渐显动画由 material3 内置驱动;
- * 图标切换:选中/未选中两套图标(FILL1 实心 / FILL0 描边)交叉淡化,同 Book's Story。
+ * 底部导航栏,移植自 Finito 的 AppNavBar,后对齐 Book's Story。
+ * 文字常显(alwaysShowLabel 默认 true):去掉 Grit 的"选中上浮+文字渐显",
+ * 避免与图标填充切换、胶囊展开三层选中动画叠加过乱。
+ * 现动效分层:胶囊展开=位置、图标填充=激活态、涟漪=按压。
  */
 @Composable
 fun AppNavBar(
@@ -48,7 +48,6 @@ fun AppNavBar(
                     }
                 },
                 label = { Text(text = stringResource(route.labelRes)) },
-                alwaysShowLabel = false,
             )
         }
     }
