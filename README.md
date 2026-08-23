@@ -1,6 +1,7 @@
-# Folio（中文名：拾页）
+# Folio
+中文名：拾页
 
-一个遵循Material Design设计规范的本地阅读器
+一个遵循 Material Design 设计规范的本地阅读器
 
 ## 功能
 
