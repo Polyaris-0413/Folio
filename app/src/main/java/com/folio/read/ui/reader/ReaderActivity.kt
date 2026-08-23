@@ -1,5 +1,11 @@
 package com.folio.read.ui.reader
 
+/*
+ * 阅读排版参数(字号/行距)与章节标题加粗规则移植自 legado
+ * (https://github.com/gedoor/legado),经 legado-with-MD3 参考
+ * SPDX-License-Identifier: GPL-3.0-only
+ */
+
 import android.Manifest
 import android.app.Activity
 import android.content.ComponentName

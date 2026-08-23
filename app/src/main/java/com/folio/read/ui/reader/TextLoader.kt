@@ -1,5 +1,11 @@
 package com.folio.read.ui.reader
 
+/*
+ * 段落处理与前言章节设计移植自 legado(https://github.com/gedoor/legado)
+ * 经 legado-with-MD3(https://github.com/HapeLee/legado-with-MD3)参考
+ * SPDX-License-Identifier: GPL-3.0-only
+ */
+
 import android.content.Context
 import android.net.Uri
 import android.provider.DocumentsContract

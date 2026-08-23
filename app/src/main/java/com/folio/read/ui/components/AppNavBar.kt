@@ -1,5 +1,11 @@
 package com.folio.read.ui.components
 
+/*
+ * 底栏图标切换 FadeThrough 动画移植自 Book's Story(https://github.com/Acclorite/book-story)
+ * 底栏骨架移植自 Finito(https://github.com/shub39/Finito,即 Grit 同源)
+ * SPDX-License-Identifier: GPL-3.0-only
+ */
+
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn

@@ -1,5 +1,10 @@
 package com.folio.read
 
+/*
+ * Tab 内容切换 FadeThrough 动画移植自 Book's Story(https://github.com/Acclorite/book-story)
+ * SPDX-License-Identifier: GPL-3.0-only
+ */
+
 import android.app.Activity
 import android.content.Intent
 import android.net.Uri

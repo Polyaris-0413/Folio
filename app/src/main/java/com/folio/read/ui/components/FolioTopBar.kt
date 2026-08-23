@@ -1,5 +1,10 @@
 package com.folio.read.ui.components
 
+/*
+ * 顶栏标题切换 FadeThrough 动画移植自 Book's Story(https://github.com/Acclorite/book-story)
+ * SPDX-License-Identifier: GPL-3.0-only
+ */
+
 import androidx.annotation.StringRes
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.core.tween

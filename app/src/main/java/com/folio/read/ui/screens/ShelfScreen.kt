@@ -1,5 +1,11 @@
 package com.folio.read.ui.screens
 
+/*
+ * 封面书名排版(CoverTitle)移植自 legado(https://github.com/gedoor/legado)
+ * 经 legado-with-MD3(https://github.com/HapeLee/legado-with-MD3)参考
+ * SPDX-License-Identifier: GPL-3.0-only
+ */
+
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.animateFloatAsState
