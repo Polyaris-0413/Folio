@@ -6,8 +6,11 @@
 基于 Kotlin + Jetpack Compose 构建
 适用于 Android 12 及以上的系统
 
-## 功能
-
+## 特性
+* 无广告、无追踪、无内购
+* 使用 Material Design 3 设计
+* 恰到好处的动画
+* 
 
 ## 开源许可
 
