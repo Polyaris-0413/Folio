@@ -18,5 +18,3 @@
 - [legado](https://github.com/gedoor/legado)(章节规则、书名解析、段落处理、封面排版、阅读排版)
 - [Book's Story](https://github.com/Acclorite/book-story)(页面切换动画)
 - [Grit](https://github.com/shub39/Grit)(圆角分组卡片)
-
-完整依赖清单见应用内「设置 → 开源声明」。
