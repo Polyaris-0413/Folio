@@ -47,12 +47,13 @@ fun FolioTopBar(
                     overflow = TextOverflow.Ellipsis,
                 )
             } else {
-                // 与内容区同款 FadeThrough(Large 档):淡入 + 0.975 微缩放,切页节奏一致
+                // 与内容区同款 FadeThrough(Large 档):淡入 + 0.95 微缩放,切页节奏一致。
+                // 0.95 而非 0.975:标题文字小,2.5% 缩放肉眼不可感知(真机验证过),取 5% 可见
                 AnimatedContent(
                     targetState = titleRes,
                     transitionSpec = {
                         (fadeIn(tween(AnimationTokens.Large)) +
-                            scaleIn(tween(AnimationTokens.Large), initialScale = 0.975f))
+                            scaleIn(tween(AnimationTokens.Large), initialScale = 0.95f))
                             .togetherWith(fadeOut(tween(AnimationTokens.Large)))
                     },
                     label = "topBarTitle",
