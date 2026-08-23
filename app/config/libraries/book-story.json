@@ -1,0 +1,7 @@
+{
+  "uniqueId": "book-story",
+  "name": "Book's Story",
+  "description": "部分代码移植:页面切换 FadeThrough 动画、底栏图标切换动画、顶栏标题动画",
+  "website": "https://github.com/Acclorite/book-story",
+  "licenses": ["GPL-3.0-only"]
+}
