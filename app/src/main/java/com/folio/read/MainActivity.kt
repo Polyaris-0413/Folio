@@ -99,11 +99,7 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
-        // 【临时调试】冷启动分段计时
-        android.util.Log.d("FolioCold", "t0 onCreate")
-        val tCreate = System.currentTimeMillis()
         setContent {
-            android.util.Log.d("FolioCold", "t1 setContent+${System.currentTimeMillis() - tCreate}ms")
             AppRoot()
         }
     }
@@ -141,18 +137,12 @@ private fun AppRoot() {
     }
 
     // 启动时从持久化恢复主题设置,并同步展开状态
-    // 【临时调试】冷启动分段计时:定位首帧 501ms 花在哪段
     LaunchedEffect(Unit) {
-        android.util.Log.d("FolioCold", "t0 theme-restore start")
-        val t0 = System.currentTimeMillis()
         val restoredFollow = settingsRepo.followSystemTheme.first()
-        android.util.Log.d("FolioCold", "t1 followSystemTheme loaded +${System.currentTimeMillis() - t0}ms")
         val restoredDark = settingsRepo.manualDark.first()
-        android.util.Log.d("FolioCold", "t2 manualDark loaded +${System.currentTimeMillis() - t0}ms")
         followSystemTheme = restoredFollow
         manualDark = restoredDark
         themeExpandState.restore(expanded = !restoredFollow)
-        android.util.Log.d("FolioCold", "t3 theme-restore done +${System.currentTimeMillis() - t0}ms")
     }
 
     // 书架数据
