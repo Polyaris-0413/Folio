@@ -1,11 +1,10 @@
 package com.folio.read.ui.components
 
 import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.core.CubicBezierEasing
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
-import androidx.compose.animation.scaleIn
-import androidx.compose.animation.scaleOut
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.interaction.Interaction
 import androidx.compose.foundation.interaction.MutableInteractionSource
@@ -41,8 +40,8 @@ private class SilentInteractionSource : MutableInteractionSource {
  * 文字常显(alwaysShowLabel 默认 true):去掉 Grit 的"选中上浮+文字渐显",
  * 避免与图标填充切换、胶囊展开三层选中动画叠加过乱。
  * 现动效分层:胶囊展开=位置、图标切换=激活态(涟漪已禁用)。
- * 图标切换用 AnimatedContent 缩放+淡入(非 Crossfade):描边/实心两图标轮廓相同,
- * 纯 Crossfade 叠加后视觉近硬切;缩放弹出才有可感知的"生长"感。
+ * 图标切换用 AnimatedContent FadeThrough(非线性非对称淡入淡出):描边/实心两图标轮廓相同,
+ * 纯 Crossfade 叠加后视觉近硬切;缩放弹出做"假动作"观感别扭;FadeThrough 的进出节奏差制造层次感。
  */
 @Composable
 fun AppNavBar(
@@ -63,14 +62,25 @@ fun AppNavBar(
                     }
                 },
                 icon = {
-                    // 选中图标从 85% 放大弹出 + 淡入;未选中反向缩小淡出
+                    // FadeThrough(M3 同级切换规范):新图标慢入(Emphasized Decelerate)、
+                    // 旧图标快出(Emphasized Accelerate),非对称节奏制造层次感。
+                    // 纯透明度变化,无缩放(缩放弹出做"假动作",真机观感别扭)。
                     AnimatedContent(
                         targetState = selected,
                         transitionSpec = {
-                            (scaleIn(tween(200), initialScale = 0.85f) + fadeIn(tween(200)))
-                                .togetherWith(
-                                    scaleOut(tween(200), targetScale = 0.85f) + fadeOut(tween(200))
-                                )
+                            val enter = fadeIn(
+                                tween(
+                                    durationMillis = 250,
+                                    easing = CubicBezierEasing(0.05f, 0.7f, 0.1f, 1f),
+                                ),
+                            )
+                            val exit = fadeOut(
+                                tween(
+                                    durationMillis = 150,
+                                    easing = CubicBezierEasing(0.3f, 0f, 0.8f, 0.15f),
+                                ),
+                            )
+                            enter togetherWith exit
                         },
                         label = "navIcon",
                     ) { isSelected ->
