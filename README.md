@@ -25,7 +25,8 @@
 由于未满足上架条件，本应用不会发布在 Google Play 及其他应用商店
 
 ## 贡献
-欢迎提交 Issue 或 Pull Request：[Issue](https://github.com/Polyaris-0413/Folio/issues)，[Pull Request](https://github.com/Polyaris-0413/Folio/pulls)。
+欢迎提交 [Issue](https://github.com/Polyaris-0413/Folio/issues) 或 [Pull Request](https://github.com/Polyaris-0413/Folio/pulls)
+
 ## 开源许可
 
 本项目基于 [GPL-3.0](LICENSE) 发布
