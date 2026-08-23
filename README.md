@@ -20,6 +20,7 @@
 这个一会再写
 
 ## 下载
+[请前往 Release 页面 下载最新版本](https://github.com/Polyaris-0413/Folio/releases)
 
 ## 贡献
 
