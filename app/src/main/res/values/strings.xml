@@ -1,7 +1,6 @@
 <resources>
     <string name="app_name">拾页</string>
     <string name="nav_shelf">阅读</string>
-    <string name="nav_stats">统计</string>
     <string name="nav_settings">设置</string>
     <string name="settings_appearance_group">外观</string>
     <string name="settings_follow_system_theme">系统主题</string>

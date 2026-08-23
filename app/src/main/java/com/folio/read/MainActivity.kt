@@ -86,7 +86,6 @@ import com.folio.read.ui.library.LibraryAddActivity
 import com.folio.read.ui.navigation.AppSections
 import com.folio.read.ui.reader.ReaderActivity
 import com.folio.read.ui.screens.ShelfScreen
-import com.folio.read.ui.screens.StatsScreen
 import com.folio.read.ui.settings.SettingsScreen
 import com.folio.read.ui.settings.ThemeItemExpandState
 import com.folio.read.ui.theme.AnimationTokens
@@ -479,7 +478,6 @@ private fun AppRoot() {
                             },
                             modifier = contentModifier,
                         )
-                        AppSections.Stats -> StatsScreen(modifier = contentModifier)
                         AppSections.Settings -> SettingsScreen(
                             expandState = themeExpandState,
                             followSystemTheme = followSystemTheme,
