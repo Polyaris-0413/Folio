@@ -1,0 +1,13 @@
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="960"
+    android:viewportHeight="960">
+  <!-- Material Symbols FILL1 实心版(选中态),translateY 平移到 Android 正区间 -->
+  <group
+      android:translateY="960">
+    <path
+        android:pathData="M80-120v-480h220v480H80Zm290 0v-720h220v720H370Zm290 0v-400h220v400H660Z"
+        android:fillColor="#1F1F1F"/>
+  </group>
+</vector>
