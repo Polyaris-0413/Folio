@@ -1,8 +1,12 @@
 package com.folio.read.ui.components
 
 import androidx.annotation.StringRes
-import androidx.compose.animation.Crossfade
+import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.layout.RowScope
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
@@ -43,10 +47,14 @@ fun FolioTopBar(
                     overflow = TextOverflow.Ellipsis,
                 )
             } else {
-                // 仅文字淡入淡出,与内容区切换同步(Large 档)
-                Crossfade(
+                // 与内容区同款 FadeThrough(Large 档):淡入 + 0.975 微缩放,切页节奏一致
+                AnimatedContent(
                     targetState = titleRes,
-                    animationSpec = tween(AnimationTokens.Large),
+                    transitionSpec = {
+                        (fadeIn(tween(AnimationTokens.Large)) +
+                            scaleIn(tween(AnimationTokens.Large), initialScale = 0.975f))
+                            .togetherWith(fadeOut(tween(AnimationTokens.Large)))
+                    },
                     label = "topBarTitle",
                 ) { res ->
                     Text(text = stringResource(res))
