@@ -1,10 +1,10 @@
 package com.folio.read.ui.components
 
 import androidx.compose.animation.AnimatedContent
-import androidx.compose.animation.core.CubicBezierEasing
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.interaction.Interaction
 import androidx.compose.foundation.interaction.MutableInteractionSource
@@ -18,6 +18,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import com.folio.read.ui.navigation.AppSections
+import com.folio.read.ui.theme.AnimationTokens
 import com.folio.read.ui.navigation.mainRoutes
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.emptyFlow
@@ -62,25 +63,14 @@ fun AppNavBar(
                     }
                 },
                 icon = {
-                    // FadeThrough(M3 同级切换规范):新图标慢入(Emphasized Decelerate)、
-                    // 旧图标快出(Emphasized Accelerate),非对称节奏制造层次感。
-                    // 纯透明度变化,无缩放(缩放弹出做"假动作",真机观感别扭)。
+                    // 与 Tab 内容区/顶栏标题同款 FadeThrough(Large 档 300ms + 0.975 缩放),
+                    // 全局动画数值统一(AnimationTokens.Large + 默认 FastOutSlowIn)。
                     AnimatedContent(
                         targetState = selected,
                         transitionSpec = {
-                            val enter = fadeIn(
-                                tween(
-                                    durationMillis = 250,
-                                    easing = CubicBezierEasing(0.05f, 0.7f, 0.1f, 1f),
-                                ),
-                            )
-                            val exit = fadeOut(
-                                tween(
-                                    durationMillis = 150,
-                                    easing = CubicBezierEasing(0.3f, 0f, 0.8f, 0.15f),
-                                ),
-                            )
-                            enter togetherWith exit
+                            (fadeIn(tween(AnimationTokens.Large)) +
+                                scaleIn(tween(AnimationTokens.Large), initialScale = 0.975f))
+                                .togetherWith(fadeOut(tween(AnimationTokens.Large)))
                         },
                         label = "navIcon",
                     ) { isSelected ->
