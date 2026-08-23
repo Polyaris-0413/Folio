@@ -1,0 +1,14 @@
+Folio (拾页) is a local reader that pays attention to detail.
+
+Built with Kotlin and Jetpack Compose, for Android 12 and above.
+No ads, no tracking, no in-app purchases.
+
+Features:
+- Material Design 3 UI
+- Thoughtful animations
+- Book title recognition and cleanup
+- Table of contents detection
+- Text-to-speech reading (system TTS)
+- Auto import from your shelf folder
+- AI assistance
+- Online updates

@@ -1,0 +1,17 @@
+New:
+- Sponsor the author (settings)
+- Auto-sync bookshelf (settings)
+
+Improved:
+- Cover title background and text
+- Unified colors and corner radii for menus and dialogs
+- Page transition animation
+- Bottom bar icon animation
+- Bookshelf sorting
+
+Adjusted:
+- Top bar overflow behavior
+- Theme option order
+
+Removed:
+- Statistics (bottom tab)
