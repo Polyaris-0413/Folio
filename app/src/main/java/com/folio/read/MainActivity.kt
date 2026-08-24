@@ -16,9 +16,11 @@ import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.compose.BackHandler
+import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
+import androidx.navigation.navArgument
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.Crossfade
@@ -96,7 +98,7 @@ import com.folio.read.ui.library.LibraryAddScreen
 import com.folio.read.ui.licenses.LicensesScreen
 import com.folio.read.ui.navigation.AppRoutes
 import com.folio.read.ui.navigation.AppSections
-import com.folio.read.ui.reader.ReaderActivity
+import com.folio.read.ui.reader.ReaderScreen
 import com.folio.read.ui.screens.ShelfScreen
 import com.folio.read.ui.settings.SettingsScreen
 import com.folio.read.ui.settings.ThemeItemExpandState
@@ -111,17 +113,40 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 class MainActivity : ComponentActivity() {
+
+    // TTS 通知/媒体栏深链:携带书 id 打开阅读页;Compose 侧观察此状态导航(可观测,onNewIntent 后触发重组)
+    var deepLinkBookId by mutableStateOf<Long?>(null)
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
+        // 冷启动被通知拉起:onCreate 里就拿到书 id,导航到阅读页
+        deepLinkBookId = intent.getLongExtra(EXTRA_BOOK_ID, -1L).takeIf { it > 0 }
         setContent {
-            AppRoot()
+            AppRoot(
+                deepLinkBookId = deepLinkBookId,
+                onDeepLinkConsumed = { deepLinkBookId = null },
+            )
         }
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        deepLinkBookId = intent.getLongExtra(EXTRA_BOOK_ID, -1L).takeIf { it > 0 }
+    }
+
+    companion object {
+        /** TTS 通知/媒体栏打开阅读页用的书 id extra(与 ReaderTtsService 共用) */
+        const val EXTRA_BOOK_ID = "book_id"
     }
 }
 
 @Composable
-private fun AppRoot() {
+private fun AppRoot(
+    deepLinkBookId: Long?,
+    onDeepLinkConsumed: () -> Unit,
+) {
     // 主题状态持久化(DataStore):启动时恢复,变更时写入
     val systemDark = isSystemInDarkTheme()
     val context = LocalContext.current
@@ -170,19 +195,21 @@ private fun AppRoot() {
 
     // 阅读页返回后置顶:点开书那一刻不改书架(避免点击瞬间列表跳动割裂),
     // 从阅读页返回书架时才刷新最近阅读时间,用户看到"刚读的书移到最前"
-    var readBookId by remember { mutableStateOf<Long?>(null) }
-    // 读过书返回书架时 +1,驱动书架滚回顶部(刚读的书已置顶第 1 位)
     var scrollToTopSignal by remember { mutableIntStateOf(0) }
     // 首次开启自动同步时的说明弹窗
     var showShelfSyncHint by remember { mutableStateOf(false) }
-    val readerLauncher = rememberLauncherForActivityResult(
-        ActivityResultContracts.StartActivityForResult(),
-    ) {
-        readBookId?.let { id ->
-            appScope.launch { bookRepo.markRead(id) }
-            scrollToTopSignal++
+    // 阅读页退出回调:书 id 由导航参数带入,退出即置顶 + 书架滚回顶部
+    fun onReaderClose(bookId: Long) {
+        appScope.launch { bookRepo.markRead(bookId) }
+        scrollToTopSignal++
+    }
+
+    // TTS 通知/媒体栏深链:携带书 id 时导航到阅读页(已在阅读页则单顶,不叠栈)
+    LaunchedEffect(deepLinkBookId) {
+        deepLinkBookId?.let { id ->
+            navController.navigate(AppRoutes.reader(id)) { launchSingleTop = true }
+            onDeepLinkConsumed()
         }
-        readBookId = null
     }
 
     // 冷启动自动检查更新:有新版本且未被「关闭」忽略 → 直接弹对话框
@@ -512,13 +539,7 @@ private fun AppRoot() {
                                 // 先查源文件可读性:被外部删除/不可读时书架层弹框,不进阅读页
                                 appScope.launch {
                                     if (bookRepo.isReadable(book)) {
-                                        // 记录打开的书,返回书架时再置顶(避免点击瞬间列表跳动)
-                                        readBookId = book.id
-                                        readerLauncher.launch(
-                                            Intent(context, ReaderActivity::class.java)
-                                                .putExtra(ReaderActivity.EXTRA_BOOK_ID, book.id)
-                                                .putExtra(ReaderActivity.EXTRA_DARK_THEME, darkTheme),
-                                        )
+                                        navController.navigate(AppRoutes.reader(book.id))
                                     } else {
                                         openFailedBook = book
                                     }
@@ -716,6 +737,20 @@ private fun AppRoot() {
             }
             composable(AppRoutes.LIBRARY_ADD) {
                 LibraryAddScreen(onBack = { navController.popBackStack() })
+            }
+            composable(
+                route = AppRoutes.READER,
+                arguments = listOf(navArgument(AppRoutes.ARG_BOOK_ID) { type = NavType.LongType }),
+            ) {
+                val bookId = it.arguments?.getLong(AppRoutes.ARG_BOOK_ID) ?: return@composable
+                ReaderScreen(
+                    bookId = bookId,
+                    darkTheme = theme,
+                    onClose = {
+                        onReaderClose(bookId)
+                        navController.popBackStack()
+                    },
+                )
             }
         }
         }
