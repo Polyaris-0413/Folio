@@ -238,6 +238,9 @@ private fun AppRoot(
     var readerBookId by remember { mutableStateOf<Long?>(null) }
     // 退出动画期间内容需保持组合:捕获最后非空 id 供覆盖层内容使用
     var lastReaderBookId by remember { mutableStateOf<Long?>(null) }
+    // 许可页/添加页覆盖层:与阅读页同模式,main 保持存活,退出不重组
+    var showLicenses by remember { mutableStateOf(false) }
+    var showLibraryAdd by remember { mutableStateOf(false) }
     // 阅读页退出回调:书 id 由状态带入,退出即置顶 + 书架滚回顶部
     fun onReaderClose(bookId: Long) {
         appScope.launch { bookRepo.markRead(bookId) }
@@ -378,9 +381,9 @@ private fun AppRoot(
         }
     }
 
-    // 打开书库添加页(扫描勾选入架)
+    // 打开书库添加页(扫描勾选入架):覆盖层,main 保持存活
     fun openLibraryAdd() {
-        navController.navigate(AppRoutes.LIBRARY_ADD)
+        showLibraryAdd = true
     }
 
     // 添加书库目录:SAF 目录选择器,选择后持久化;自动同步开启时选完立即扫描
@@ -616,7 +619,7 @@ private fun AppRoot(
                                 manualDark = newValue
                                 appScope.launch { settingsRepo.setManualDark(newValue) }
                             },
-                            onOpenLicenses = { navController.navigate(AppRoutes.LICENSES) },
+                            onOpenLicenses = { showLicenses = true },
                             libraryDirName = libraryDirName,
                             onSelectLibrary = { addLibraryLauncher.launch(null) },
                             shelfSync = shelfSync.enabled,
@@ -814,13 +817,29 @@ private fun AppRoot(
                     )
                 }
             }
+            // 许可页覆盖层:与阅读页同模式,main 保持存活,退出不重组
+            AnimatedVisibility(
+                visible = showLicenses,
+                modifier = Modifier.fillMaxSize(),
+                enter = fadeIn(tween(AnimationTokens.XL)) +
+                    slideInHorizontally(tween(AnimationTokens.XL)) { it / 16 },
+                exit = fadeOut(tween(AnimationTokens.XL)) +
+                    slideOutHorizontally(tween(AnimationTokens.XL)) { it / 16 },
+            ) {
+                LicensesScreen(onBack = { showLicenses = false })
+            }
+            // 添加页覆盖层
+            AnimatedVisibility(
+                visible = showLibraryAdd,
+                modifier = Modifier.fillMaxSize(),
+                enter = fadeIn(tween(AnimationTokens.XL)) +
+                    slideInHorizontally(tween(AnimationTokens.XL)) { it / 16 },
+                exit = fadeOut(tween(AnimationTokens.XL)) +
+                    slideOutHorizontally(tween(AnimationTokens.XL)) { it / 16 },
+            ) {
+                LibraryAddScreen(onBack = { showLibraryAdd = false })
             }
             }
-            composable(AppRoutes.LICENSES) {
-                LicensesScreen(onBack = { navController.popBackStack() })
-            }
-            composable(AppRoutes.LIBRARY_ADD) {
-                LibraryAddScreen(onBack = { navController.popBackStack() })
             }
         }
         }
