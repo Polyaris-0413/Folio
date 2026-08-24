@@ -31,6 +31,9 @@ import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
@@ -752,13 +755,21 @@ private fun AppRoot(
                         onDismissRequest = { showRenameDialog = false },
                         title = { Text(text = stringResource(R.string.shelf_rename_dialog_title)) },
                         text = {
-                            OutlinedTextField(
-                                value = renameText,
-                                onValueChange = { renameText = it },
-                                label = { Text(text = stringResource(R.string.shelf_rename_label)) },
-                                singleLine = true,
-                                modifier = Modifier.fillMaxWidth(),
-                            )
+                            // 浮动 label 在真机上首帧 ~68ms(浮起动画+测量),改普通 Text 标签放字段上方
+                            Column {
+                                Text(
+                                    text = stringResource(R.string.shelf_rename_label),
+                                    style = MaterialTheme.typography.labelLarge,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                                Spacer(modifier = Modifier.height(4.dp))
+                                OutlinedTextField(
+                                    value = renameText,
+                                    onValueChange = { renameText = it },
+                                    singleLine = true,
+                                    modifier = Modifier.fillMaxWidth(),
+                                )
+                            }
                         },
                         confirmButton = {
                             TextButton(
