@@ -383,6 +383,18 @@ private fun AppRoot(
             NavHost(
                 navController = navController,
                 startDestination = AppRoutes.MAIN,
+                // 目的地切换统一 FadeThrough(与 Tab/底栏同档 300ms FastOutSlowIn + 0.975 缩放),
+                // 解决「Tab 有动画、页面跳转走系统过渡」的观感不一致
+                enterTransition = {
+                    fadeIn(tween(AnimationTokens.Large)) +
+                        scaleIn(tween(AnimationTokens.Large), initialScale = 0.975f)
+                },
+                exitTransition = { fadeOut(tween(AnimationTokens.Large)) },
+                popEnterTransition = {
+                    fadeIn(tween(AnimationTokens.Large)) +
+                        scaleIn(tween(AnimationTokens.Large), initialScale = 0.975f)
+                },
+                popExitTransition = { fadeOut(tween(AnimationTokens.Large)) },
             ) {
                 composable(AppRoutes.MAIN) {
                     Scaffold(                modifier = Modifier.fillMaxSize(),
