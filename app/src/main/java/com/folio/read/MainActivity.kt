@@ -92,7 +92,8 @@ import com.folio.read.ui.components.FolioAlertDialog
 import com.folio.read.ui.components.FolioTopBar
 import com.folio.read.ui.components.UpdateDialog
 import com.folio.read.ui.components.menuShape
-import com.folio.read.ui.library.LibraryAddActivity
+import com.folio.read.ui.library.LibraryAddScreen
+import com.folio.read.ui.licenses.LicensesScreen
 import com.folio.read.ui.navigation.AppRoutes
 import com.folio.read.ui.navigation.AppSections
 import com.folio.read.ui.reader.ReaderActivity
@@ -312,10 +313,7 @@ private fun AppRoot() {
 
     // 打开书库添加页(扫描勾选入架)
     fun openLibraryAdd() {
-        context.startActivity(
-            Intent(context, LibraryAddActivity::class.java)
-                .putExtra(LibraryAddActivity.EXTRA_DARK_THEME, darkTheme),
-        )
+        navController.navigate(AppRoutes.LIBRARY_ADD)
     }
 
     // 添加书库目录:SAF 目录选择器,选择后持久化;自动同步开启时选完立即扫描
@@ -360,8 +358,7 @@ private fun AppRoot() {
                 startDestination = AppRoutes.MAIN,
             ) {
                 composable(AppRoutes.MAIN) {
-                    Scaffold(
-                modifier = Modifier.fillMaxSize(),
+                    Scaffold(                modifier = Modifier.fillMaxSize(),
                 // 各页面自带 TopAppBar 负责状态栏内边距,外层 Scaffold 不再叠加顶部 inset
                 contentWindowInsets = WindowInsets(0, 0, 0, 0),
                 // 共享顶栏(背景固定,避免透出底色变暗):标题动画在 FolioTopBar 内做
@@ -537,7 +534,7 @@ private fun AppRoot() {
                                 manualDark = newValue
                                 appScope.launch { settingsRepo.setManualDark(newValue) }
                             },
-                            darkTheme = darkTheme,
+                            onOpenLicenses = { navController.navigate(AppRoutes.LICENSES) },
                             libraryDirName = libraryDirName,
                             onSelectLibrary = { addLibraryLauncher.launch(null) },
                             shelfSync = shelfSync.enabled,
@@ -713,6 +710,12 @@ private fun AppRoot() {
                     },
                 )
             }
+            }
+            composable(AppRoutes.LICENSES) {
+                LicensesScreen(onBack = { navController.popBackStack() })
+            }
+            composable(AppRoutes.LIBRARY_ADD) {
+                LibraryAddScreen(onBack = { navController.popBackStack() })
             }
         }
         }

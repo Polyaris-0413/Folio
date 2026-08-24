@@ -41,16 +41,6 @@
         </activity>
 
         <activity
-            android:name=".ui.licenses.LicensesActivity"
-            android:exported="false"
-            android:theme="@style/Theme.Folio" />
-
-        <activity
-            android:name=".ui.library.LibraryAddActivity"
-            android:exported="false"
-            android:theme="@style/Theme.Folio" />
-
-        <activity
             android:name=".ui.reader.ReaderActivity"
             android:exported="false"
             android:theme="@style/Theme.Folio" />

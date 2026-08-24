@@ -1,17 +1,11 @@
 package com.folio.read.ui.library
 
-import android.app.Activity
 import android.net.Uri
-import android.os.Bundle
 import android.widget.Toast
-import androidx.activity.ComponentActivity
-import androidx.activity.compose.setContent
-import androidx.activity.enableEdgeToEdge
 import androidx.compose.animation.Crossfade
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -30,7 +24,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.SideEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -41,7 +35,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
-import androidx.core.view.WindowCompat
 import com.folio.read.R
 import com.folio.read.data.AiConfig
 import com.folio.read.data.AiSettingsRepository
@@ -53,45 +46,21 @@ import com.folio.read.data.TitleCleanSettings
 import com.folio.read.data.TitleCleanSettingsRepository
 import com.folio.read.ui.components.FolioTopBar
 import com.folio.read.ui.theme.AnimationTokens
-import com.folio.read.ui.theme.FolioTheme
-import androidx.compose.runtime.collectAsState
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
-import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 /** 扫描结果候选:SAF document URI + 文件名 */
 private data class FileCandidate(val uri: Uri, val name: String)
 
-/** 书库添加页:扫描登记目录下的 txt,勾选后批量加入书架 */
-class LibraryAddActivity : ComponentActivity() {
-
-    companion object {
-        const val EXTRA_DARK_THEME = "extra_dark_theme"
-    }
-
-    override fun onCreate(savedInstanceState: Bundle?) {
-        super.onCreate(savedInstanceState)
-        enableEdgeToEdge()
-        setContent {
-            // 主题跟随来源页面选择
-            val darkTheme = intent?.getBooleanExtra(EXTRA_DARK_THEME, isSystemInDarkTheme())
-                ?: isSystemInDarkTheme()
-            FolioTheme(darkTheme = darkTheme) {
-                LibraryAddContent(
-                    darkTheme = darkTheme,
-                    onBack = { finish() },
-                )
-            }
-        }
-    }
-}
-
+/**
+ * 书库添加页(单 Activity 目的地):扫描登记目录下的 txt,勾选后批量加入书架。
+ * 主题/系统栏由宿主统一管理,本页只关心内容与返回。
+ */
 @Composable
-private fun LibraryAddContent(
-    darkTheme: Boolean,
+fun LibraryAddScreen(
     onBack: () -> Unit,
 ) {
     val context = LocalContext.current
@@ -111,17 +80,6 @@ private fun LibraryAddContent(
         if (titleClean && aiConfig.isConfigured) BookTitleCleaner(aiConfig) else null
     }
     val cleanScope = remember { CoroutineScope(SupervisorJob() + Dispatchers.IO) }
-
-    // 系统栏图标跟随生效主题
-    val activity = LocalContext.current as? Activity
-    SideEffect {
-        activity?.window?.let { window ->
-            WindowCompat.getInsetsController(window, window.decorView).apply {
-                isAppearanceLightStatusBars = !darkTheme
-                isAppearanceLightNavigationBars = !darkTheme
-            }
-        }
-    }
 
     // 扫描书架目录下的 txt(复用 LibraryRepository.scanLibrary;IO 线程,避免大目录卡 UI)
     LaunchedEffect(Unit) {
