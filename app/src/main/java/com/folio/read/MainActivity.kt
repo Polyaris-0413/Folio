@@ -793,6 +793,7 @@ private fun AppRoot(
                 )
             }
             // 阅读页覆盖层:最后渲染叠在最上;main 保持存活,退出不重组(与目录覆盖层同模式)
+            // 进入=从右滑入(前进),退出=向右滑出(弹回书架方向,与 NavHost popExit 一致)
             if (readerBookId != null) lastReaderBookId = readerBookId
             AnimatedVisibility(
                 visible = readerBookId != null,
@@ -800,7 +801,7 @@ private fun AppRoot(
                 enter = fadeIn(tween(AnimationTokens.XL)) +
                     slideInHorizontally(tween(AnimationTokens.XL)) { it / 16 },
                 exit = fadeOut(tween(AnimationTokens.XL)) +
-                    slideOutHorizontally(tween(AnimationTokens.XL)) { -it / 16 },
+                    slideOutHorizontally(tween(AnimationTokens.XL)) { it / 16 },
             ) {
                 lastReaderBookId?.let { id ->
                     ReaderScreen(

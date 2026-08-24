@@ -861,14 +861,14 @@ private fun ReaderPager(
 
         // 目录覆盖层:全屏盖在阅读页上(含顶栏),阅读页组合保持存活;
         // 点击章节跳转或返回关闭。渲染顺序在 Scaffold 之后,天然叠在最上层;
-        // 开合动画与页面切换同款轻推(350ms,1/16 屏宽),观感一致
+        // 开合动画与页面切换同款轻推(350ms,1/16 屏宽),进入从右、退出向右(弹回方向),观感一致
         AnimatedVisibility(
             visible = showToc,
             modifier = Modifier.fillMaxSize(),
             enter = fadeIn(tween(AnimationTokens.XL)) +
                 slideInHorizontally(tween(AnimationTokens.XL)) { it / 16 },
             exit = fadeOut(tween(AnimationTokens.XL)) +
-                slideOutHorizontally(tween(AnimationTokens.XL)) { -it / 16 },
+                slideOutHorizontally(tween(AnimationTokens.XL)) { it / 16 },
         ) {
             TocOverlay(
                 titles = chapters.map { it.title },
