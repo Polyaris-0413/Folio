@@ -28,6 +28,8 @@ import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.scaleIn
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Box
@@ -383,18 +385,24 @@ private fun AppRoot(
             NavHost(
                 navController = navController,
                 startDestination = AppRoutes.MAIN,
-                // 目的地切换统一 FadeThrough(与 Tab/底栏同档 300ms FastOutSlowIn + 0.975 缩放),
-                // 解决「Tab 有动画、页面跳转走系统过渡」的观感不一致
+                // 页面跳转轻推(350ms,1/16 屏宽)移植自 Book's Story(其页面切换统一用该过渡):
+                // 前进=新页从右滑入+旧页向左滑出,返回=反向;解决了原「Tab 有动画、页面走系统过渡」的割裂
                 enterTransition = {
-                    fadeIn(tween(AnimationTokens.Large)) +
-                        scaleIn(tween(AnimationTokens.Large), initialScale = 0.975f)
+                    fadeIn(tween(AnimationTokens.XL)) +
+                        slideInHorizontally(tween(AnimationTokens.XL)) { it / 16 }
                 },
-                exitTransition = { fadeOut(tween(AnimationTokens.Large)) },
+                exitTransition = {
+                    fadeOut(tween(AnimationTokens.XL)) +
+                        slideOutHorizontally(tween(AnimationTokens.XL)) { -it / 16 }
+                },
                 popEnterTransition = {
-                    fadeIn(tween(AnimationTokens.Large)) +
-                        scaleIn(tween(AnimationTokens.Large), initialScale = 0.975f)
+                    fadeIn(tween(AnimationTokens.XL)) +
+                        slideInHorizontally(tween(AnimationTokens.XL)) { -it / 16 }
                 },
-                popExitTransition = { fadeOut(tween(AnimationTokens.Large)) },
+                popExitTransition = {
+                    fadeOut(tween(AnimationTokens.XL)) +
+                        slideOutHorizontally(tween(AnimationTokens.XL)) { it / 16 }
+                },
             ) {
                 composable(AppRoutes.MAIN) {
                     Scaffold(                modifier = Modifier.fillMaxSize(),

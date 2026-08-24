@@ -18,10 +18,15 @@ import android.widget.Toast
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.Crossfade
 import androidx.core.content.ContextCompat
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -832,8 +837,16 @@ private fun ReaderPager(
         }
 
         // 目录覆盖层:全屏盖在阅读页上(含顶栏),阅读页组合保持存活;
-        // 点击章节跳转或返回关闭。渲染顺序在 Scaffold 之后,天然叠在最上层
-        if (showToc) {
+        // 点击章节跳转或返回关闭。渲染顺序在 Scaffold 之后,天然叠在最上层;
+        // 开合动画与页面切换同款轻推(350ms,1/16 屏宽),观感一致
+        AnimatedVisibility(
+            visible = showToc,
+            modifier = Modifier.fillMaxSize(),
+            enter = fadeIn(tween(AnimationTokens.XL)) +
+                slideInHorizontally(tween(AnimationTokens.XL)) { it / 16 },
+            exit = fadeOut(tween(AnimationTokens.XL)) +
+                slideOutHorizontally(tween(AnimationTokens.XL)) { -it / 16 },
+        ) {
             TocOverlay(
                 titles = chapters.map { it.title },
                 currentChapter = curChapter,

@@ -13,4 +13,7 @@ object AnimationTokens {
 
     /** 页面/内容切换(ms):tab 淡入淡出 */
     const val Large = 300
+
+    /** 页面跳转轻推(ms):1/16 屏宽水平滑动,移植自 Book's Story(其页面统一用该过渡) */
+    const val XL = 350
 }
