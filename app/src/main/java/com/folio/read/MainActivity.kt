@@ -37,7 +37,9 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.width
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.DropdownMenu
@@ -63,6 +65,11 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalFontFamilyResolver
+import androidx.compose.ui.platform.LocalWindowInfo
+import androidx.compose.ui.text.TextMeasurer
+import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.graphics.toArgb
@@ -101,6 +108,9 @@ import com.folio.read.ui.licenses.LicensesScreen
 import com.folio.read.ui.navigation.AppRoutes
 import com.folio.read.ui.navigation.AppSections
 import com.folio.read.ui.reader.ReaderScreen
+import com.folio.read.ui.reader.ReaderHPadding
+import com.folio.read.ui.reader.ReaderVPadding
+import com.folio.read.ui.reader.preWarmBook
 import com.folio.read.ui.screens.ShelfScreen
 import com.folio.read.ui.settings.SettingsScreen
 import com.folio.read.ui.settings.ThemeItemExpandState
@@ -194,6 +204,31 @@ private fun AppRoot(
     val bookRepo = remember { BookRepository(context.applicationContext) }
     // null=查询中(启动首帧不显示空态占位符,有书时避免闪几帧占位);empty=确实无书
     val books by bookRepo.books.collectAsState(initial = null)
+
+    // 书架后台预读:书架按 lastReadAt 置顶,顶书=最可能继续读的,提前算好缓存 → 点开秒开。
+    // 只填空不重算(与阅读页并发写由缓存校验兜底);尺寸按阅读页测量口径
+    // (Scaffold 内容区 = 窗口 - 顶栏 64dp - 状态栏 - 导航栏,再减正文留白)。
+    val density = LocalDensity.current
+    val fontFamilyResolver = LocalFontFamilyResolver.current
+    val windowSize = LocalWindowInfo.current.containerSize
+    val statusBar = WindowInsets.statusBars.getTop(density)
+    val navBar = WindowInsets.navigationBars.getBottom(density)
+    val topBar = with(density) { 64.dp.toPx() }
+    // 组合作用域内构造测量器工厂(拿内部字体解析器,后台分页用独立 TextMeasurer 与 UI 测量隔离)
+    val measurerFactory: () -> TextMeasurer = {
+        TextMeasurer(fontFamilyResolver, density, LayoutDirection.Ltr)
+    }
+    var preWarmedBookId by remember { mutableStateOf<Long?>(null) }
+    LaunchedEffect(books, fontFamilyResolver, windowSize) {
+        val top = books?.firstOrNull() ?: return@LaunchedEffect
+        if (top.id == preWarmedBookId) return@LaunchedEffect
+        preWarmedBookId = top.id
+        val textWidth = (windowSize.width - with(density) { ReaderHPadding.toPx() * 2 }).toInt()
+        val textHeight = (windowSize.height - statusBar - topBar - navBar - with(density) { ReaderVPadding.toPx() * 2 }).toInt()
+        appScope.launch {
+            preWarmBook(context, top, measurerFactory, density, textWidth, textHeight)
+        }
+    }
 
     // 阅读页返回后置顶:点开书那一刻不改书架(避免点击瞬间列表跳动割裂),
     // 从阅读页返回书架时才刷新最近阅读时间,用户看到"刚读的书移到最前"

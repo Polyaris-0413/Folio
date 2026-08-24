@@ -221,19 +221,20 @@ fun ReaderScreen(
  * 字号照搬 Legado 默认 20sp;行距 49sp 时每页仅 13 行、页底余白偏大,
  * 收紧为 44sp(≈字号×2.2)后每页 14 行,页底更满。
  */
-private val ReaderStyle = TextStyle(fontSize = 20.sp, lineHeight = 44.sp)
+// 书架预读复用(同模块 internal)
+internal val ReaderStyle = TextStyle(fontSize = 20.sp, lineHeight = 44.sp)
 
 /** 分页缓存键中的排版签名:字号/行距/章节规则/文本处理变化会使分页边界失效 */
-private val ReaderStyleKey: String =
+internal val ReaderStyleKey: String =
     "${ReaderStyle.fontSize.value}x${ReaderStyle.lineHeight.value}|$ChapterRuleVersion|$TextProcessVersion"
 
 /** 正文左右/上下留白(分页测量与渲染共用,必须一致)。
  * 水平 20dp:正文宽 = 屏宽-2×20dp,对 20sp(80px)字宽正好 16 字/行整除,右缘无剩余半字 */
-private val ReaderHPadding = 20.dp
-private val ReaderVPadding = 16.dp
+internal val ReaderHPadding = 20.dp
+internal val ReaderVPadding = 16.dp
 
 /** 单章分页:章内起始字符偏移列表(绝对下标),末项 = 章末哨兵;每章十几页,毫秒级 */
-private fun chapterPagesOf(
+internal fun chapterPagesOf(
     annotated: AnnotatedString,
     chapter: Chapter,
     measurer: TextMeasurer,
@@ -894,7 +895,7 @@ private fun savePosition(
 }
 
 /** 构造分页/渲染共用的正文:章节标题行加粗(照搬 Legado 默认 textBold=0 的标题加粗),其余与正文一致 */
-private fun buildAnnotatedText(text: String, chapterStarts: List<Int>): AnnotatedString {
+internal fun buildAnnotatedText(text: String, chapterStarts: List<Int>): AnnotatedString {
     if (chapterStarts.isEmpty()) return AnnotatedString(text)
     return buildAnnotatedString {
         append(text)
@@ -942,7 +943,7 @@ private fun withHighlight(
 }
 
 /** 计算从 start 开始下一页的边界(字符下标),供单章分页逐页推进;limit 钳制不越过章末 */
-private fun nextPageEnd(
+internal fun nextPageEnd(
     text: AnnotatedString,
     start: Int,
     measurer: TextMeasurer,
