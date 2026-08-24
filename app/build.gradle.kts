@@ -32,6 +32,8 @@ android {
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro",
             )
+            // 临时用 debug 签名(基准测试/本机验证要安装;正式发布换成 D 盘 key)
+            signingConfig = signingConfigs.getByName("debug")
         }
     }
     compileOptions {
