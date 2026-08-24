@@ -60,6 +60,8 @@ dependencies {
     implementation(platform(libs.androidx.compose.bom))
     implementation(libs.androidx.activity.compose)
     implementation(libs.androidx.navigation.compose)
+    // Baseline Profile:启动/首帧热点类提前 AOT,需配合 app/src/main/generated/baselineProfiles/baseline-prof.txt
+    implementation(libs.androidx.profileinstaller)
     implementation(libs.androidx.compose.material3)
     implementation(libs.androidx.compose.ui)
     implementation(libs.androidx.compose.ui.graphics)
