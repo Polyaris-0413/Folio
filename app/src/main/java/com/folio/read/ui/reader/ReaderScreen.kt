@@ -27,6 +27,7 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideOutHorizontally
+import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -136,7 +137,10 @@ fun ReaderScreen(
         book = loaded
         // 文件可能被外部删除/替换:SAF 查询会抛 SecurityException,须保护(否则整页闪退);
         // 查不到指纹时跳过缓存,正文读取失败走 loadFailed 提示而非崩溃
-        val fp = runCatching { querySourceFingerprint(context, loaded.filePath) }.getOrNull()
+        // SAF 指纹查询走 binder,主线程可能卡几十到几百 ms(点书瞬间 315ms 掉帧根因),挪到 IO
+        val fp = withContext(Dispatchers.IO) {
+            runCatching { querySourceFingerprint(context, loaded.filePath) }.getOrNull()
+        }
         sourceFp = fp
         // 1) 进程内存缓存:同一进程内重开零 IO,秒出
         ReaderCache.memoryLoadText(loaded.id, fp)?.let {
@@ -166,7 +170,14 @@ fun ReaderScreen(
         }
     }
 
-    Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+    // 根 Box 必须带背景色:加载/失败期间整页透明会露出窗口背景(深色下=黑闪),
+    // 背景 = 主题背景色,加载空白与内容背景一致,过渡期不闪
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(MaterialTheme.colorScheme.background),
+        contentAlignment = Alignment.Center,
+    ) {
         Crossfade(
             // 加载中/失败都空白(失败由对话框提示,不打字面提示页)
             targetState = if (book == null || text == null || loadFailed) 0 else 1,
@@ -464,10 +475,19 @@ private fun ReaderPager(
                         lineHeight = (textHeight.toFloat() / linesPerPage / density.density / density.fontScale).sp,
                     )
                 }
-                // 章节标题加粗:测量与渲染共用同一份 AnnotatedString,保证分页边界一致
-                val annotated = remember(text, chapterStarts) {
-                    buildAnnotatedText(text, chapterStarts ?: emptyList())
+                // 章节标题加粗:测量与渲染共用同一份 AnnotatedString(保证分页边界一致)。
+                // 1MB 级正文拼加粗有几十 ms 主线程开销(正文到达那帧 40-60ms 掉帧根因),放后台算;
+                // 章节未检测完成不拼(门禁关着不渲染,省一次无用拼装);key 变化先置 null 失效,
+                // 避免分页用到旧版——分支守卫含 null,就绪前不渲染
+                var annotatedState by remember { mutableStateOf<AnnotatedString?>(null) }
+                LaunchedEffect(text, chapterStarts) {
+                    val starts = chapterStarts ?: return@LaunchedEffect
+                    annotatedState = null
+                    annotatedState = withContext(Dispatchers.Default) {
+                        buildAnnotatedText(text, starts)
+                    }
                 }
+                val annotated = annotatedState
                 // 每章页表缓存(内存,宽高/样式变化时整表作废);磁盘缓存按章键控
                 val chapterPages = remember(textWidth, textHeight, readerStyle) { mutableStateMapOf<Int, List<Int>>() }
                 // 目录跳转/切章后的待滚页(章内序号);-1 = 无,Int.MAX_VALUE = 章末
@@ -476,8 +496,9 @@ private fun ReaderPager(
                 // 预计算窗口必须覆盖切章目标的后一哨兵章,否则布局渐进变化会让翻页器页码错位/冻住。
                 // key 含 chapterStarts:检测完成(null→[]/实际列表)后 chapters 值可能不变(无章节兜底一章),
                 // 仅依赖 chapters 会漏重启,页表永不生成导致门禁永久空白
-                LaunchedEffect(curChapter, textWidth, textHeight, chapters, chapterStarts) {
+                LaunchedEffect(curChapter, textWidth, textHeight, chapters, chapterStarts, annotated) {
                     if (chapterStarts == null || chapters.isEmpty()) return@LaunchedEffect
+                    val annotatedText = annotated ?: return@LaunchedEffect
                     val need = listOf(curChapter - 2, curChapter - 1, curChapter, curChapter + 1, curChapter + 2)
                         .filter { it in chapters.indices && chapterPages[it] == null }
                     for (idx in need) {
@@ -493,7 +514,7 @@ private fun ReaderPager(
                             withContext(Dispatchers.Default) {
                                 val bgMeasurer = TextMeasurer(fontFamilyResolver, density, LayoutDirection.Ltr)
                                 nextPageEnd(
-                                    annotated, cached[0], bgMeasurer, readerStyle,
+                                    annotatedText, cached[0], bgMeasurer, readerStyle,
                                     textWidth, textHeight, linesPerPage, linesPerPage * 120, chapters[idx].end,
                                 ) == cached[1]
                             }
@@ -502,7 +523,7 @@ private fun ReaderPager(
                         } else {
                             val computed = withContext(Dispatchers.Default) {
                                 val bgMeasurer = TextMeasurer(fontFamilyResolver, density, LayoutDirection.Ltr)
-                                chapterPagesOf(annotated, chapters[idx], bgMeasurer, readerStyle, textWidth, textHeight, linesPerPage)
+                                chapterPagesOf(annotatedText, chapters[idx], bgMeasurer, readerStyle, textWidth, textHeight, linesPerPage)
                             }
                             if (fp != null) {
                                 saveScope.launch {
@@ -528,13 +549,14 @@ private fun ReaderPager(
                 // 外层 Box 强制居中(BoxWithConstraints 默认左上对齐,Crossfade 过渡期内容定位稳定);
                 Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                 Crossfade(
-                    targetState = chapterStarts == null || chapterPages[curChapter] == null,
+                    targetState = chapterStarts == null || annotated == null || chapterPages[curChapter] == null,
                     animationSpec = tween(AnimationTokens.Large),
                     label = "readerGate",
                 ) { loading ->
                     // Crossfade 过渡期会同时组合两分支:目标章页表未就绪时(跳转淡出阶段)也走加载分支,防 `!!` 空指针
                     val curPages = chapterPages[curChapter]
-                    if (loading || curPages == null) {
+                    val curAnnotated = annotated
+                    if (loading || curPages == null || curAnnotated == null) {
                         Unit // 加载期间不显示任何内容,就绪后淡入
                     } else {
                     // 目录跳转后正文淡入:key(jumpSeq) 每次跳转重建,Animatable 0→1;翻页跨章序号不变不触发,初始打开(序号 0)也不触发
@@ -801,7 +823,7 @@ private fun ReaderPager(
                                 // 占位哨兵页(相邻章加载中):空白,很快被真实内容填上
                                 if (range != null) {
                                     Text(
-                                        text = withHighlight(annotated, range, ttsHighlight, darkTheme),
+                                        text = withHighlight(curAnnotated, range, ttsHighlight, darkTheme),
                                         style = readerStyle,
                                         color = MaterialTheme.colorScheme.onSurface,
                                     )

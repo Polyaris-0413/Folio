@@ -559,7 +559,10 @@ private fun AppRoot(
                                 // 先查源文件可读性:被外部删除/不可读时书架层弹框,不进阅读页
                                 appScope.launch {
                                     if (bookRepo.isReadable(book)) {
-                                        navController.navigate(AppRoutes.reader(book.id))
+                                        // launchSingleTop:快速连点同一本书不叠两个阅读页
+                                        navController.navigate(AppRoutes.reader(book.id)) {
+                                            launchSingleTop = true
+                                        }
                                     } else {
                                         openFailedBook = book
                                     }
