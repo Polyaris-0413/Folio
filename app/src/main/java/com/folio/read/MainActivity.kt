@@ -16,6 +16,9 @@ import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.compose.BackHandler
+import androidx.navigation.compose.NavHost
+import androidx.navigation.compose.composable
+import androidx.navigation.compose.rememberNavController
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.Crossfade
@@ -58,6 +61,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.unit.dp
 import androidx.core.view.WindowCompat
 import androidx.documentfile.provider.DocumentFile
@@ -89,13 +93,17 @@ import com.folio.read.ui.components.FolioTopBar
 import com.folio.read.ui.components.UpdateDialog
 import com.folio.read.ui.components.menuShape
 import com.folio.read.ui.library.LibraryAddActivity
+import com.folio.read.ui.navigation.AppRoutes
 import com.folio.read.ui.navigation.AppSections
 import com.folio.read.ui.reader.ReaderActivity
 import com.folio.read.ui.screens.ShelfScreen
 import com.folio.read.ui.settings.SettingsScreen
 import com.folio.read.ui.settings.ThemeItemExpandState
 import com.folio.read.ui.theme.AnimationTokens
+import com.folio.read.ui.theme.FolioSeedColor
 import com.folio.read.ui.theme.FolioTheme
+import com.materialkolor.hct.Hct
+import com.materialkolor.scheme.SchemeNeutral
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
@@ -120,6 +128,9 @@ private fun AppRoot() {
     var followSystemTheme by remember { mutableStateOf(true) }
     var manualDark by remember { mutableStateOf(false) }
     var selectedSection by rememberSaveable { mutableStateOf(AppSections.Shelf) }
+
+    // 单 Activity 导航:全局唯一 NavController,提升到主题 Crossfade 之外(主题过渡期间新旧副本共用同一控制器)
+    val navController = rememberNavController()
 
     val darkTheme = if (followSystemTheme) systemDark else manualDark
 
@@ -320,10 +331,15 @@ private fun AppRoot() {
         }
     }
 
-    // 系统栏图标明暗跟随实际生效主题,避免深色顶栏配深色图标看不见
+    // 系统栏图标明暗跟随实际生效主题 + 窗口背景随主题(防深色打开页面时白闪)。
+    // 单 Activity 后窗口全局唯一,这里一处搞定(原 5 个 Activity 各自重复的副本随迁移删除)
     val activity = LocalContext.current as? Activity
+    val windowScheme = remember(darkTheme) {
+        SchemeNeutral(Hct.fromInt(FolioSeedColor.toArgb()), darkTheme, contrastLevel = 0.0)
+    }
     SideEffect {
         activity?.window?.let { window ->
+            window.decorView.setBackgroundColor(windowScheme.background.toInt())
             WindowCompat.getInsetsController(window, window.decorView).apply {
                 isAppearanceLightStatusBars = !darkTheme
                 isAppearanceLightNavigationBars = !darkTheme
@@ -339,7 +355,12 @@ private fun AppRoot() {
         label = "themeTransition",
     ) { theme ->
         FolioTheme(darkTheme = theme) {
-            Scaffold(
+            NavHost(
+                navController = navController,
+                startDestination = AppRoutes.MAIN,
+            ) {
+                composable(AppRoutes.MAIN) {
+                    Scaffold(
                 modifier = Modifier.fillMaxSize(),
                 // 各页面自带 TopAppBar 负责状态栏内边距,外层 Scaffold 不再叠加顶部 inset
                 contentWindowInsets = WindowInsets(0, 0, 0, 0),
@@ -692,6 +713,8 @@ private fun AppRoot() {
                     },
                 )
             }
+            }
+        }
         }
     }
 }
