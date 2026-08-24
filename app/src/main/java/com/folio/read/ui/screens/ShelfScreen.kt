@@ -6,11 +6,18 @@ package com.folio.read.ui.screens
  * SPDX-License-Identifier: GPL-3.0-only
  */
 
+import android.graphics.Bitmap
+import android.graphics.Canvas
+import android.graphics.LinearGradient
+import android.graphics.Paint
+import android.graphics.Shader
+import android.graphics.Typeface
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -41,10 +48,13 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.painterResource
@@ -209,7 +219,9 @@ private fun CoverTitle(name: String, modifier: Modifier = Modifier) {
                     .align(Alignment.Center),
             )
         } else {
-            // 竖排:逐字竖排,列满换列;列间距 = 字宽 × 1.2
+            // 竖排:逐字竖排,列满换列;列间距 = 字宽 × 1.2。
+            // 单 Text + \n 拼接(每行一字)替代逐字 Text 节点:书架重组时几十个逐字 Text
+            // 是退出阅读页 198ms 掉帧的根因,单 Text 每列只需 1 个节点,视觉一致
             with(density) {
                 val charHeight = textSize * 1.2f
                 val perColumn = floor(maxHeight.toPx() * 0.6f / charHeight).toInt().coerceAtLeast(1)
@@ -219,23 +231,89 @@ private fun CoverTitle(name: String, modifier: Modifier = Modifier) {
                     modifier = Modifier.align(Alignment.Center),
                 ) {
                     columns.forEach { column ->
-                        Column {
-                            column.forEach { char ->
-                                Text(
-                                    text = char.toString(),
-                                    fontSize = textSizeSp,
-                                    fontWeight = FontWeight.Bold,
-                                    color = Color.White,
-                                    lineHeight = (charHeight * 1.05f).toSp(),
-                                    modifier = Modifier.height((charHeight * 1.05f).toDp()),
-                                )
-                            }
-                        }
+                        Text(
+                            text = column.joinToString("\n"),
+                            fontSize = textSizeSp,
+                            fontWeight = FontWeight.Bold,
+                            color = Color.White,
+                            lineHeight = (charHeight * 1.05f).toSp(),
+                        )
                     }
                 }
             }
         }
     }
+}
+
+/** 封面位图进程级缓存:书架重组(退出阅读页弹回)时目的地被销毁重建,remember 会丢,位图须跨组合存活 */
+private object CoverCache {
+    private val cache = mutableMapOf<String, Bitmap>()
+
+    fun get(key: String, render: () -> Bitmap): Bitmap = cache.getOrPut(key, render)
+}
+
+/**
+ * 封面图:渐变 + 书名。竖排书名渲染成位图缓存——书架重组时逐字 Text 节点
+ * 是退出阅读页 ~200ms 掉帧的根因,位图直接画零组合成本;横排(拉丁书名)罕见,保持 Compose 渲染。
+ */
+@Composable
+private fun CoverArtwork(book: Book, gradient: List<Color>, modifier: Modifier = Modifier) {
+    val title = book.title.ifEmpty { stringResource(R.string.book_cover_placeholder) }
+    val isHorizontal = title.count { it in 'A'..'Z' || it in 'a'..'z' }.toFloat() / title.length > 0.3f
+    if (isHorizontal) {
+        Box(modifier = modifier.background(Brush.verticalGradient(gradient)), contentAlignment = Alignment.Center) {
+            CoverTitle(title)
+        }
+    } else {
+        BoxWithConstraints(modifier = modifier) {
+            val w = constraints.maxWidth
+            val h = constraints.maxHeight
+            val bitmap = remember(w, h, book.id, title) {
+                CoverCache.get("${book.id}|$title|${w}x${h}") {
+                    renderCoverBitmap(w, h, title, gradient)
+                }
+            }
+            Image(bitmap = bitmap.asImageBitmap(), contentDescription = null, modifier = Modifier.fillMaxSize())
+        }
+    }
+}
+
+/** 竖排封面位图:渐变底 + 白字竖排(字号=宽÷8,列间距=字宽×0.2,行距=字宽×1.2×1.05),与 CoverTitle 竖排分支同口径 */
+private fun renderCoverBitmap(width: Int, height: Int, title: String, gradient: List<Color>): Bitmap {
+    val bmp = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
+    val canvas = Canvas(bmp)
+    canvas.drawRect(
+        0f, 0f, width.toFloat(), height.toFloat(),
+        Paint().apply {
+            shader = LinearGradient(
+                0f, 0f, 0f, height.toFloat(),
+                gradient.map { it.toArgb() }.toIntArray(), null, Shader.TileMode.CLAMP,
+            )
+        },
+    )
+    val textSize = width / 8f
+    val textPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        this.textSize = textSize
+        typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
+        color = android.graphics.Color.WHITE
+    }
+    val chars = title.filter { it.isLetterOrDigit() }
+    val charHeight = textSize * 1.2f
+    val perColumn = floor(height * 0.6f / charHeight).toInt().coerceAtLeast(1)
+    val columns = chars.toList().chunked(perColumn)
+    val columnGap = textSize * 0.2f
+    val totalW = columns.size * textSize + (columns.size - 1) * columnGap
+    var x = (width - totalW) / 2f + textSize / 2f
+    for (column in columns) {
+        val blockH = column.size * charHeight * 1.05f
+        var y = (height - blockH) / 2f + textSize * 0.75f
+        for (char in column) {
+            canvas.drawText(char.toString(), x, y, textPaint)
+            y += charHeight * 1.05f
+        }
+        x += textSize + columnGap
+    }
+    return bmp
 }
 
 /** 书籍卡片:专属渐变封面(完整书名)+ 书名;选中时主题色边框+封面罩色(淡入淡出) */
@@ -272,11 +350,10 @@ private fun BookCard(
             modifier = Modifier
                 .fillMaxWidth()
                 .aspectRatio(3f / 4f)
-                .clip(shape)
-                .background(Brush.verticalGradient(gradient)),
+                .clip(shape),
             contentAlignment = Alignment.Center,
         ) {
-            CoverTitle(book.title.ifEmpty { stringResource(R.string.book_cover_placeholder) })
+            CoverArtwork(book = book, gradient = gradient, modifier = Modifier.fillMaxSize())
             Box(
                 modifier = Modifier
                     .matchParentSize()
@@ -328,11 +405,10 @@ private fun BookRowCard(
             modifier = Modifier
                 .width(72.dp)
                 .aspectRatio(3f / 4f)
-                .clip(shape)
-                .background(Brush.verticalGradient(gradient)),
+                .clip(shape),
             contentAlignment = Alignment.Center,
         ) {
-            CoverTitle(book.title.ifEmpty { stringResource(R.string.book_cover_placeholder) })
+            CoverArtwork(book = book, gradient = gradient, modifier = Modifier.fillMaxSize())
             Box(
                 modifier = Modifier
                     .matchParentSize()

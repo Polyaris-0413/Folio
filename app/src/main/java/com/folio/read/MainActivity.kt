@@ -16,11 +16,9 @@ import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.compose.BackHandler
-import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
-import androidx.navigation.navArgument
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.Crossfade
@@ -235,16 +233,21 @@ private fun AppRoot(
     var scrollToTopSignal by remember { mutableIntStateOf(0) }
     // 首次开启自动同步时的说明弹窗
     var showShelfSyncHint by remember { mutableStateOf(false) }
-    // 阅读页退出回调:书 id 由导航参数带入,退出即置顶 + 书架滚回顶部
+    // 阅读页覆盖层:在 main 目的地内渲染,main 保持存活 → 退出不重组(修复退出掉帧);
+    // 覆盖层打开时 main 仍是当前目的地,返回键由 ReaderScreen 的 BackHandler 接管
+    var readerBookId by remember { mutableStateOf<Long?>(null) }
+    // 退出动画期间内容需保持组合:捕获最后非空 id 供覆盖层内容使用
+    var lastReaderBookId by remember { mutableStateOf<Long?>(null) }
+    // 阅读页退出回调:书 id 由状态带入,退出即置顶 + 书架滚回顶部
     fun onReaderClose(bookId: Long) {
         appScope.launch { bookRepo.markRead(bookId) }
         scrollToTopSignal++
     }
 
-    // TTS 通知/媒体栏深链:携带书 id 时导航到阅读页(已在阅读页则单顶,不叠栈)
+    // TTS 通知/媒体栏深链:携带书 id 时打开阅读页覆盖层
     LaunchedEffect(deepLinkBookId) {
         deepLinkBookId?.let { id ->
-            navController.navigate(AppRoutes.reader(id)) { launchSingleTop = true }
+            readerBookId = id
             onDeepLinkConsumed()
         }
     }
@@ -440,6 +443,8 @@ private fun AppRoot(
                 },
             ) {
                 composable(AppRoutes.MAIN) {
+                    // 阅读页覆盖层需要盖住顶栏/底栏,main 目的地根节点包 Box
+                    Box(modifier = Modifier.fillMaxSize()) {
                     Scaffold(                modifier = Modifier.fillMaxSize(),
                 // 各页面自带 TopAppBar 负责状态栏内边距,外层 Scaffold 不再叠加顶部 inset
                 contentWindowInsets = WindowInsets(0, 0, 0, 0),
@@ -594,10 +599,8 @@ private fun AppRoot(
                                 // 先查源文件可读性:被外部删除/不可读时书架层弹框,不进阅读页
                                 appScope.launch {
                                     if (bookRepo.isReadable(book)) {
-                                        // launchSingleTop:快速连点同一本书不叠两个阅读页
-                                        navController.navigate(AppRoutes.reader(book.id)) {
-                                            launchSingleTop = true
-                                        }
+                                        // 打开阅读页覆盖层;快速连点置同一本书是幂等 no-op(无栈可叠)
+                                        readerBookId = book.id
                                     } else {
                                         openFailedBook = book
                                     }
@@ -789,26 +792,34 @@ private fun AppRoot(
                     },
                 )
             }
+            // 阅读页覆盖层:最后渲染叠在最上;main 保持存活,退出不重组(与目录覆盖层同模式)
+            if (readerBookId != null) lastReaderBookId = readerBookId
+            AnimatedVisibility(
+                visible = readerBookId != null,
+                modifier = Modifier.fillMaxSize(),
+                enter = fadeIn(tween(AnimationTokens.XL)) +
+                    slideInHorizontally(tween(AnimationTokens.XL)) { it / 16 },
+                exit = fadeOut(tween(AnimationTokens.XL)) +
+                    slideOutHorizontally(tween(AnimationTokens.XL)) { -it / 16 },
+            ) {
+                lastReaderBookId?.let { id ->
+                    ReaderScreen(
+                        bookId = id,
+                        darkTheme = theme,
+                        onClose = {
+                            onReaderClose(id)
+                            readerBookId = null
+                        },
+                    )
+                }
+            }
+            }
             }
             composable(AppRoutes.LICENSES) {
                 LicensesScreen(onBack = { navController.popBackStack() })
             }
             composable(AppRoutes.LIBRARY_ADD) {
                 LibraryAddScreen(onBack = { navController.popBackStack() })
-            }
-            composable(
-                route = AppRoutes.READER,
-                arguments = listOf(navArgument(AppRoutes.ARG_BOOK_ID) { type = NavType.LongType }),
-            ) {
-                val bookId = it.arguments?.getLong(AppRoutes.ARG_BOOK_ID) ?: return@composable
-                ReaderScreen(
-                    bookId = bookId,
-                    darkTheme = theme,
-                    onClose = {
-                        onReaderClose(bookId)
-                        navController.popBackStack()
-                    },
-                )
             }
         }
         }
