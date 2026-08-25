@@ -7,9 +7,7 @@
 <p align="center">一款注重细节的本地阅读器</p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/Android-12%2B-0a0a0a" alt="Android 12+" />
-  <a href="https://github.com/Polyaris-0413/Folio/releases" style="text-decoration: none;">
-    <img src="https://img.shields.io/github/v/release/Polyaris-0413/Folio?color=0a0a0a" alt="Release" />
+<a href="https://github.com/Polyaris-0413/Folio/releases" style="text-decoration: none;"><img src="https://img.shields.io/github/v/release/Polyaris-0413/Folio?color=0a0a0a" alt="Release" /></a> <img src="https://img.shields.io/github/stars/Polyaris-0413/Folio?style=flat&color=0a0a0a" alt="GitHub Stars" />
 </p>
 
 <p align="center">
