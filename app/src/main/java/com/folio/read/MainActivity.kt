@@ -9,6 +9,7 @@ import android.app.Activity
 import android.content.Intent
 import android.net.Uri
 import android.os.Bundle
+import android.os.SystemClock
 import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -124,6 +125,9 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+
+// 进入书架页自动同步的节流窗口:避免书架↔设置高频切换时重复扫描
+private const val AUTO_SYNC_THROTTLE_MS = 10_000L
 
 class MainActivity : ComponentActivity() {
 
@@ -352,7 +356,22 @@ private fun AppRoot(
             }
         }
     }
-    LaunchedEffect(Unit) { runShelfSync() }
+    // 进入书架页时自动同步(不再只启动时扫一次):从设置/阅读页/许可页回来,目录里的新书实时出现。
+    // 触发 = 书架从不可见变为可见(无覆盖层 + 书架 tab 选中);节流 10s,避免书架↔设置高频切换重复扫。
+    val shelfVisible = selectedSection == AppSections.Shelf &&
+        readerBookId == null && !showLicenses && !showLibraryAdd
+    var wasShelfVisible by remember { mutableStateOf(false) }
+    var lastAutoSyncAt by remember { mutableStateOf(0L) }
+    LaunchedEffect(shelfVisible) {
+        if (shelfVisible && !wasShelfVisible) {
+            val now = SystemClock.uptimeMillis()
+            if (now - lastAutoSyncAt >= AUTO_SYNC_THROTTLE_MS) {
+                lastAutoSyncAt = now
+                runShelfSync()
+            }
+        }
+        wasShelfVisible = shelfVisible
+    }
 
     // 添加书籍:SAF 文件选择器;重复文件(唯一索引拦截)提示用户
     val addBookLauncher = rememberLauncherForActivityResult(
