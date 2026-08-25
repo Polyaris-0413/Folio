@@ -197,51 +197,28 @@ fun ShelfScreen(
  * 竖排时过滤标点符号(如「三体(全集)」→「三体全集」):Legado 竖排不处理成对标点,
  * 括号会单独成列、读序崩坏(三/体//(/全/集/)/);封面仅作装饰,展示名与正式书名解耦。
  */
+/**
+ * 封面横排书名(仅拉丁书名,如 "Book's Story")。竖排书名已走位图渲染(renderCoverBitmap),
+ * 此组件只服务 CoverArtwork 的横排分支——曾经的竖排分支(单 Text+换行)已由位图取代。
+ */
 @Composable
 private fun CoverTitle(name: String, modifier: Modifier = Modifier) {
     BoxWithConstraints(modifier = modifier) {
         val density = LocalDensity.current
         val textSize = with(density) { maxWidth.toPx() / 8f }
         val textSizeSp = with(density) { textSize.toSp() }
-        // 含拉丁字母(如 "Book's Story")强制横排,否则竖排(书脊式)
-        val isHorizontal = name.count { it in 'A'..'Z' || it in 'a'..'z' }.toFloat() / name.length > 0.3f
-        if (isHorizontal) {
-            Text(
-                text = name,
-                fontSize = textSizeSp,
-                fontWeight = FontWeight.Bold,
-                color = Color.White,
-                textAlign = TextAlign.Center,
-                maxLines = 3,
-                overflow = TextOverflow.Ellipsis,
-                modifier = Modifier
-                    .fillMaxWidth(0.8f)
-                    .align(Alignment.Center),
-            )
-        } else {
-            // 竖排:逐字竖排,列满换列;列间距 = 字宽 × 1.2。
-            // 单 Text + \n 拼接(每行一字)替代逐字 Text 节点:书架重组时几十个逐字 Text
-            // 是退出阅读页 198ms 掉帧的根因,单 Text 每列只需 1 个节点,视觉一致
-            with(density) {
-                val charHeight = textSize * 1.2f
-                val perColumn = floor(maxHeight.toPx() * 0.6f / charHeight).toInt().coerceAtLeast(1)
-                val columns = name.filter { it.isLetterOrDigit() }.toList().chunked(perColumn)
-                Row(
-                    horizontalArrangement = Arrangement.spacedBy((textSize * 0.2f).toDp()),
-                    modifier = Modifier.align(Alignment.Center),
-                ) {
-                    columns.forEach { column ->
-                        Text(
-                            text = column.joinToString("\n"),
-                            fontSize = textSizeSp,
-                            fontWeight = FontWeight.Bold,
-                            color = Color.White,
-                            lineHeight = (charHeight * 1.05f).toSp(),
-                        )
-                    }
-                }
-            }
-        }
+        Text(
+            text = name,
+            fontSize = textSizeSp,
+            fontWeight = FontWeight.Bold,
+            color = Color.White,
+            textAlign = TextAlign.Center,
+            maxLines = 3,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier
+                .fillMaxWidth(0.8f)
+                .align(Alignment.Center),
+        )
     }
 }
 
