@@ -1,4 +1,10 @@
-<img width="800" height="800" alt="45504" src="https://github.com/user-attachments/assets/d628884c-9571-40ab-8fc9-bfa1f04c38a7" />
+<p align="center">
+  <img src="https://github.com/user-attachments/assets/d628884c-9571-40ab-8fc9-bfa1f04c38a7" width="112" />
+</p>
+
+<h1 align="center">拾页 Folio</h1>
+
+<p align="center"></p>
 
 
 # Folio
