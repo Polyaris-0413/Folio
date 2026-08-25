@@ -14,6 +14,8 @@ import android.content.ServiceConnection
 import android.content.pm.PackageManager
 import android.os.Build
 import android.os.IBinder
+import android.os.SystemClock
+import android.util.Log
 import android.widget.Toast
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -91,6 +93,7 @@ import com.folio.read.ui.components.menuShape
 import com.folio.read.ui.theme.AnimationTokens
 import com.folio.read.ui.theme.FolioSeedColor
 import com.materialkolor.hct.Hct
+import kotlin.math.abs
 import kotlin.math.min
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -304,6 +307,11 @@ private fun ReaderPager(
     }
     // 章节模型(内存切片):块 i 到块 i+1 之间为第 i 章
     val chapters = remember(chapterStarts, text) { buildChapters(text, chapterStarts ?: emptyList()) }
+    // debug:书末章节规模(「跳书末章卡加载」排查:章节 end 延伸到全文末尾时单章可能巨大)
+    LaunchedEffect(chapters) {
+        val tail = chapters.takeLast(5).map { "${it.title}[${it.end - it.start}]" }
+        Log.d("FolioReader", "chapters=${chapters.size} tailLen=${chapters.last().end - chapters.last().start} tail=$tail")
+    }
     // 当前章(从 Book 恢复,章节列表就绪后校正)
     var curChapter by remember(chapters) {
         mutableIntStateOf(book.currentChapterIndex.coerceIn(0, (chapters.size - 1).coerceAtLeast(0)))
@@ -500,9 +508,13 @@ private fun ReaderPager(
                 LaunchedEffect(curChapter, textWidth, textHeight, chapters, chapterStarts, annotated) {
                     if (chapterStarts == null || chapters.isEmpty()) return@LaunchedEffect
                     val annotatedText = annotated ?: return@LaunchedEffect
+                    // 离当前章越近越先算:门禁只等当前章页表,当前章优先 → 跳章秒开;
+                    // 曾按 [cur-2..cur+2] 顺序串行,当前章排第 3,被前面的超长章阻塞(实测跳书末章等 ~6s)
                     val need = listOf(curChapter - 2, curChapter - 1, curChapter, curChapter + 1, curChapter + 2)
                         .filter { it in chapters.indices && chapterPages[it] == null }
+                        .sortedBy { abs(it - curChapter) }
                     for (idx in need) {
+                        val t0 = SystemClock.uptimeMillis()
                         val fp = sourceFp
                         val cached = fp?.let {
                             withContext(Dispatchers.IO) {
@@ -534,12 +546,16 @@ private fun ReaderPager(
                             computed
                         }
                         chapterPages[idx] = pages
+                        // debug:各章分页耗时与页数(卡加载排查:末尾大章会在此耗时数秒到数十秒)
+                        val dt = SystemClock.uptimeMillis() - t0
+                        Log.d("FolioReader", "pages ch=$idx \"${chapters[idx].title}\" len=${chapters[idx].end - chapters[idx].start} n=${pages.size - 1} ${if (valid) "cached" else "calc"} ${dt}ms")
                     }
                 }
 
                 // 目录跳转:切章 + 定位章首(每章页表毫秒级,远跳瞬时)
                 LaunchedEffect(pendingJump) {
                     if (pendingJump >= 0 && pendingJump in chapters.indices) {
+                        Log.d("FolioReader", "jump ch=$pendingJump \"${chapters[pendingJump].title}\" at ${SystemClock.uptimeMillis()}")
                         curChapter = pendingJump
                         pendingPage = 0
                         pendingJump = -1

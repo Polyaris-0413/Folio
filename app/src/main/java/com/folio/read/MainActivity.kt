@@ -697,6 +697,11 @@ private fun AppRoot(
                 selectedBookIds = emptySet()
             }
 
+            // 设置页返回:切回书架 tab(返回手势语义=回到上一界面,而非退出应用)
+            BackHandler(enabled = selectedSection == AppSections.Settings) {
+                selectedSection = AppSections.Shelf
+            }
+
             // 冷启动检测到新版本:下载(浏览器)/关闭(记住该版本,本次不再提醒;更更新的版本仍会提示)
             pendingUpdate?.let { version ->
                 UpdateDialog(

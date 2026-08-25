@@ -2,6 +2,7 @@ package com.folio.read.ui.licenses
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -64,6 +65,9 @@ fun LicensesScreen(
         }.getOrNull()
     }
     var selectedLibrary by remember { mutableStateOf<Library?>(null) }
+
+    // 手势返回与顶栏返回按钮同行为:关闭覆盖层回书架(单 Activity 覆盖层需自行接管返回键)
+    BackHandler(enabled = true) { onBack() }
 
     Box(
         modifier = Modifier
