@@ -1,11 +1,16 @@
 <p align="center">
-  <img src="https://github.com/user-attachments/assets/d628884c-9571-40ab-8fc9-bfa1f04c38a7" width="112" /><br><br>
-  <strong>拾页 Folio</strong><br>
-  <hr width="40%"><br>
-  一款注重细节的本地阅读器<br>
-  基于 Kotlin + Jetpack Compose 构建<br>
-  适用于 Android 12 及以上的系统
+  <img src="https://github.com/user-attachments/assets/d628884c-9571-40ab-8fc9-bfa1f04c38a7" width="112" alt="拾页 Folio 图标" />
 </p>
+
+<h1 align="center">拾页 Folio</h1>
+
+<p align="center">
+  ——
+</p>
+
+<p align="center">一款注重细节的本地阅读器</p>
+
+<p align="center">基于 Kotlin + Jetpack Compose 构建<br>适用于 Android 12 及以上的系统</p>
 
 ## 特性
 * 无广告、无追踪、无内购
