@@ -6,7 +6,9 @@
 
 <p align="center">一款注重细节的本地阅读器</p>
 
-  </a>
+<p align="center">基于 Kotlin + Jetpack Compose 构建<br>适用于 Android 12 及以上的系统</p>
+
+<p align="center">
   <img src="https://img.shields.io/badge/Android-12%2B-0a0a0a" alt="Android 12+" />
   <img src="https://img.shields.io/badge/License-GPL--3.0-0a0a0a" alt="License GPL-3.0" />
 </p>
