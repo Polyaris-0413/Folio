@@ -269,7 +269,7 @@ private fun CoverArtwork(book: Book, gradient: List<Color>, modifier: Modifier =
             val w = constraints.maxWidth
             val h = constraints.maxHeight
             val bitmap = remember(w, h, book.id, title) {
-                CoverCache.get("${book.id}|$title|${w}x${h}") {
+                CoverCache.get("${book.id}|$title|${w}x${h}|v2") {
                     renderCoverBitmap(w, h, title, gradient)
                 }
             }
@@ -303,13 +303,18 @@ private fun renderCoverBitmap(width: Int, height: Int, title: String, gradient: 
     val columns = chars.toList().chunked(perColumn)
     val columnGap = textSize * 0.2f
     val totalW = columns.size * textSize + (columns.size - 1) * columnGap
-    var x = (width - totalW) / 2f + textSize / 2f
+    // drawText 的 x 是文字左缘:列块左缘对齐居中(此前多加了 textSize/2 导致整体右偏)
+    var x = (width - totalW) / 2f
+    // 每行盒高与 CoverTitle 的 lineHeight 一致;基线按字体度量把字形垂直居中于行盒
+    val lineH = charHeight * 1.05f
+    val fm = textPaint.fontMetrics
     for (column in columns) {
-        val blockH = column.size * charHeight * 1.05f
-        var y = (height - blockH) / 2f + textSize * 0.75f
+        val blockH = column.size * lineH
+        val blockTop = (height - blockH) / 2f
+        var y = blockTop + (lineH - (fm.descent - fm.ascent)) / 2f - fm.ascent
         for (char in column) {
             canvas.drawText(char.toString(), x, y, textPaint)
-            y += charHeight * 1.05f
+            y += lineH
         }
         x += textSize + columnGap
     }
