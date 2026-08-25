@@ -4,14 +4,7 @@
 
 <h1 align="center">拾页 Folio</h1>
 
-<p align="center"></p>
-
-
-# Folio
-中文名：拾页
-
-一款注重细节的本地阅读器
-
+<p align="center">一款注重细节的本地阅读器</p>
 基于 Kotlin + Jetpack Compose 构建  
 适用于 Android 12 及以上的系统
 
