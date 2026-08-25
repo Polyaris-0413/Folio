@@ -238,6 +238,9 @@ private fun AppRoot(
     // 阅读页返回后置顶:点开书那一刻不改书架(避免点击瞬间列表跳动割裂),
     // 从阅读页返回书架时才刷新最近阅读时间,用户看到"刚读的书移到最前"
     var scrollToTopSignal by remember { mutableIntStateOf(0) }
+    // 自动同步新增书后的滚顶:用动画滚动(新书平滑露出,位移动画自然播放);
+    // 与读完书返回的即时滚顶分开,避免深滚位置时滑太久
+    var scrollToTopAnimatedSignal by remember { mutableIntStateOf(0) }
     // 首次开启自动同步时的说明弹窗
     var showShelfSyncHint by remember { mutableStateOf(false) }
     // 阅读页覆盖层:在 main 目的地内渲染,main 保持存活 → 退出不重组(修复退出掉帧);
@@ -359,7 +362,7 @@ private fun AppRoot(
                 }
                 // 新增书按 lastReadAt 排到书架最前:滚回顶部让用户直接看到,不用手动上拉
                 // (与「读完书返回书架滚顶」同一机制;books flow 更新后书架侧兜底再滚一次)
-                if (added > 0) scrollToTopSignal++
+                if (added > 0) scrollToTopAnimatedSignal++
             }
         }
     }
@@ -621,6 +624,7 @@ private fun AppRoot(
                             shelfLayout = shelfLayout,
                             selectedBookIds = selectedBookIds,
                             scrollToTopSignal = scrollToTopSignal,
+                            scrollToTopAnimatedSignal = scrollToTopAnimatedSignal,
                             onToggleSelect = { book ->
                                 selectedBookIds =
                                     if (book.id in selectedBookIds) selectedBookIds - book.id

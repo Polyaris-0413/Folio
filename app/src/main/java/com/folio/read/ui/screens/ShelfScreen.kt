@@ -103,6 +103,7 @@ fun ShelfScreen(
     selectedBookIds: Set<Long>,
     /** 读过书返回书架时 +1,触发滚回顶部(刚读的书已置顶第 1 位,让用户直接看到) */
     scrollToTopSignal: Int = 0,
+    scrollToTopAnimatedSignal: Int = 0,
     onToggleSelect: (Book) -> Unit,
     onAddBook: () -> Unit,
     onOpenBook: (Book) -> Unit,
@@ -126,8 +127,11 @@ fun ShelfScreen(
                 ShelfLayoutMode.ADAPTIVE -> GridCells.Adaptive(minSize = 152.dp)
             }
             // 读过书返回时滚回顶部(scrollToTopSignal 每次 +1);需等数据就绪(books 非空)
-            LaunchedEffect(scrollToTopSignal, books) {
-                if (scrollToTopSignal > 0 && books != null) {
+            LaunchedEffect(scrollToTopSignal, scrollToTopAnimatedSignal, books) {
+                if (scrollToTopAnimatedSignal > 0 && books != null) {
+                    // 自动同步新书:动画滚顶,新书平滑露出(位移动画不被瞬间跳转截断)
+                    gridState.animateScrollToItem(0)
+                } else if (scrollToTopSignal > 0 && books != null) {
                     gridState.scrollToItem(0)
                 }
             }
