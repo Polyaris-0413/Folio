@@ -1,13 +1,10 @@
 <p align="center">
-  <strong>拾页 Folio</strong>
-</p>
-
-<p align="center">
-  <hr width="30%">
-</p>
-
-<p align="center">
-  一款注重细节的本地阅读器
+  <img src="https://github.com/user-attachments/assets/d628884c-9571-40ab-8fc9-bfa1f04c38a7" width="112" /><br><br>
+  <strong>拾页 Folio</strong><br>
+  <hr width="40%"><br>
+  一款注重细节的本地阅读器<br>
+  基于 Kotlin + Jetpack Compose 构建<br>
+  适用于 Android 12 及以上的系统
 </p>
 
 ## 特性
