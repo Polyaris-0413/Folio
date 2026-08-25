@@ -346,13 +346,20 @@ private fun AppRoot(
             if (enabled && dir != null) {
                 // 已移除的书(手动删除过)自动同步不再加回;手动添加会清除该记录
                 // 传 dir 给 scanLibrary:forceDir 场景(选目录后立即同步)不依赖 DataStore 异步写入
+                var added = 0
                 libraryRepo.scanLibrary(dir).forEach { (uri, _) ->
                     if (bookRepo.isRemoved(uri)) return@forEach
                     val book = bookRepo.addBook(uri)
-                    if (book != null && titleCleaner != null) {
-                        bookRepo.aiCleanBook(book, titleCleaner)
+                    if (book != null) {
+                        added++
+                        if (titleCleaner != null) {
+                            bookRepo.aiCleanBook(book, titleCleaner)
+                        }
                     }
                 }
+                // 新增书按 lastReadAt 排到书架最前:滚回顶部让用户直接看到,不用手动上拉
+                // (与「读完书返回书架滚顶」同一机制;books flow 更新后书架侧兜底再滚一次)
+                if (added > 0) scrollToTopSignal++
             }
         }
     }
