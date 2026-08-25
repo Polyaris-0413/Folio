@@ -1,10 +1,12 @@
 <p align="center">
-  <img src="docs/images/icon.svg" width="112" alt="墨知 MoRead 图标" />
+  <img src="https://github.com/user-attachments/assets/d628884c-9571-40ab-8fc9-bfa1f04c38a7" width="112" alt="拾页 Folio 图标" />
 </p>
 
-<h1 align="center">墨知 MoRead</h1>
+<h1 align="center">拾页 Folio</h1>
 
-<p align="center">极简的原生 Android 本地小说阅读器，内建可深度定制的 AI 伴读。</p>
+<p align="center">一款注重细节的本地阅读器</p>
+
+<p align="center">基于 Kotlin + Jetpack Compose 构建<br>适用于 Android 12 及以上的系统</p>
 
 ## 特性
 * 无广告、无追踪、无内购
