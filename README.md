@@ -12,8 +12,10 @@
   <img src="https://img.shields.io/badge/License-GPL--3.0-0a0a0a" alt="License GPL-3.0" />
 </p>
 
-起因是想给家人写个能听书的阅读器
-想了想 或许还有其他人需要 就分享出来了
+<p align="center">
+  起因是想给家人写个能听书的阅读器<br>
+  想了想 或许还有其他人需要 就分享出来了
+</p>
 
 ## 特性
 * 无广告、无追踪、无内购
