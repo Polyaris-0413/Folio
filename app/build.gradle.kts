@@ -3,6 +3,9 @@ plugins {
     alias(libs.plugins.kotlin.compose)
     alias(libs.plugins.aboutlibraries)
     alias(libs.plugins.ksp)
+    // Baseline Profile 录制:app 内建生成任务 :app:generateBaselineProfile,录制产物自动落
+    // src/release/generated/baselineProfiles(release 变体专属源集,与 src/main 手写版共存)
+    alias(libs.plugins.androidx.baselineprofile)
 }
 
 android {
@@ -15,8 +18,8 @@ android {
         applicationId = "com.folio.read"
         minSdk = 31
         targetSdk = 37
-        versionCode = 2
-        versionName = "1.1.0"
+        versionCode = 3
+        versionName = "2.0.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
@@ -32,6 +35,8 @@ android {
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro",
             )
+            // 临时用 debug 签名(基准测试/本机验证要安装;正式发布换成 D 盘 key)
+            signingConfig = signingConfigs.getByName("debug")
         }
     }
     compileOptions {
@@ -59,6 +64,9 @@ ksp {
 dependencies {
     implementation(platform(libs.androidx.compose.bom))
     implementation(libs.androidx.activity.compose)
+    implementation(libs.androidx.navigation.compose)
+    // Baseline Profile:启动/首帧热点类提前 AOT,需配合 app/src/main/generated/baselineProfiles/baseline-prof.txt
+    implementation(libs.androidx.profileinstaller)
     implementation(libs.androidx.compose.material3)
     implementation(libs.androidx.compose.ui)
     implementation(libs.androidx.compose.ui.graphics)
@@ -80,6 +88,8 @@ dependencies {
     androidTestImplementation(libs.androidx.compose.ui.test.junit4)
     androidTestImplementation(libs.androidx.espresso.core)
     androidTestImplementation(libs.androidx.junit)
+    // Baseline Profile 录制模块:generateBaselineProfile 消费其产物,合并进 release
+    baselineProfile(project(":baselineprofile"))
     debugImplementation(libs.androidx.compose.ui.test.manifest)
     debugImplementation(libs.androidx.compose.ui.tooling)
 }

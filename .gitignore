@@ -19,3 +19,4 @@ local.properties
 /.idea
 
 /app/release
+/baselineprofile/build

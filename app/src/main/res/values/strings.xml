@@ -72,7 +72,7 @@
     <string name="shelf_add_duplicate">这本书已在书架中</string>
     <string name="library_add_title">书架添加</string>
     <string name="library_scan_empty">该目录下没有找到 txt 文件</string>
-    <string name="library_add_selected">添加选中(%1$d)</string>
+    <string name="library_add_selected">添加选中</string>
     <string name="library_add_skipped">已跳过 %1$d 本重复书籍</string>
     <string name="library_select_all">全选</string>
     <string name="shelf_more">更多操作</string>

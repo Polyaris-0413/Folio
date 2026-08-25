@@ -20,10 +20,10 @@ import android.support.v4.media.MediaMetadataCompat
 import android.support.v4.media.session.MediaSessionCompat
 import android.support.v4.media.session.PlaybackStateCompat
 import androidx.media.app.NotificationCompat.MediaStyle
+import com.folio.read.MainActivity
 import com.folio.read.R
 import com.folio.read.data.Book
 import com.folio.read.data.BookRepository
-import com.folio.read.data.SettingsRepository
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -52,11 +52,6 @@ class ReaderTtsService : Service() {
         const val EXTRA_OFFSET = "offset"
         private const val NOTIF_ID = 1001
         private const val CHANNEL_ID = "tts_reading"
-
-        /** 系统当前深浅(按 uiMode) */
-        private fun isSystemDark(context: Context): Boolean =
-            (context.resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK) ==
-                Configuration.UI_MODE_NIGHT_YES
 
         /** 从指定位置开始朗读;chapter/offset 传 -1 时按书内保存的进度读 */
         fun start(context: Context, bookId: Long, chapter: Int, offset: Int) {
@@ -93,8 +88,6 @@ class ReaderTtsService : Service() {
     private var text: String? = null
     private var chapters: List<Chapter> = emptyList()
     private var curChapter = 0
-    /** 通知点开阅读页时传入的深浅主题;onCreate 按系统与用户设置同步 */
-    private var notifDarkTheme = false
     /** 上次停止时的朗读位置(整本正文绝对偏移);停止后媒体栏/通知栏点播放从此处继续 */
     private var lastStopPosition: Int? = null
     /** 当前朗读章节标题(通知文案);文本加载完、朗读开始前为空 */
@@ -122,17 +115,8 @@ class ReaderTtsService : Service() {
         super.onCreate()
         Log.d(TAG, "onCreate")
         // Service 构造阶段 context 未附加,取系统深浅须在 onCreate 后
-        notifDarkTheme = isSystemDark(this)
         repo = BookRepository(applicationContext)
         createChannel()
-        // 通知点开阅读页要带正确深浅:跟随用户主题设置(随系统或手动)
-        serviceScope.launch {
-            val themeRepo = SettingsRepository(this@ReaderTtsService)
-            themeRepo.followSystemTheme.collect { follow ->
-                val manual = themeRepo.manualDark.first()
-                notifDarkTheme = if (follow) isSystemDark(this@ReaderTtsService) else manual
-            }
-        }
         // 朗读引擎与媒体会话不在 onCreate 初始化:打开阅读页(绑定服务)不应接管系统媒体播放器,
         // 首次点「朗读」时由 ensureTtsAndSession() 创建
     }
@@ -483,10 +467,8 @@ class ReaderTtsService : Service() {
     private fun openReaderIntent(): PendingIntent = PendingIntent.getActivity(
         this,
         0,
-        Intent(this, ReaderActivity::class.java)
-            .putExtra(EXTRA_BOOK_ID, book?.id ?: -1L)
-            // 深浅主题随通知同步,否则从媒体栏打开阅读页会落到默认浅色
-            .putExtra(ReaderActivity.EXTRA_DARK_THEME, notifDarkTheme)
+        Intent(this, MainActivity::class.java)
+            .putExtra(MainActivity.EXTRA_BOOK_ID, book?.id ?: -1L)
             .addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP),
         // UPDATE_CURRENT:服务启动瞬间 book 未加载时 extra 是 -1,不更新的话
         // 系统复用旧 PendingIntent,点通知会拿 -1 打开阅读页(「无法打开此文件」)

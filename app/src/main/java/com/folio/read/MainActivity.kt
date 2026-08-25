@@ -9,6 +9,7 @@ import android.app.Activity
 import android.content.Intent
 import android.net.Uri
 import android.os.Bundle
+import android.os.SystemClock
 import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -16,6 +17,9 @@ import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.compose.BackHandler
+import androidx.navigation.compose.NavHost
+import androidx.navigation.compose.composable
+import androidx.navigation.compose.rememberNavController
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.Crossfade
@@ -23,14 +27,21 @@ import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.scaleIn
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.width
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.DropdownMenu
@@ -56,8 +67,14 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalFontFamilyResolver
+import androidx.compose.ui.platform.LocalWindowInfo
+import androidx.compose.ui.text.TextMeasurer
+import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.unit.dp
 import androidx.core.view.WindowCompat
 import androidx.documentfile.provider.DocumentFile
@@ -88,31 +105,65 @@ import com.folio.read.ui.components.FolioAlertDialog
 import com.folio.read.ui.components.FolioTopBar
 import com.folio.read.ui.components.UpdateDialog
 import com.folio.read.ui.components.menuShape
-import com.folio.read.ui.library.LibraryAddActivity
+import com.folio.read.ui.library.LibraryAddScreen
+import com.folio.read.ui.licenses.LicensesScreen
+import com.folio.read.ui.navigation.AppRoutes
 import com.folio.read.ui.navigation.AppSections
-import com.folio.read.ui.reader.ReaderActivity
+import com.folio.read.ui.reader.ReaderScreen
+import com.folio.read.ui.reader.ReaderHPadding
+import com.folio.read.ui.reader.ReaderVPadding
+import com.folio.read.ui.reader.preWarmBook
 import com.folio.read.ui.screens.ShelfScreen
 import com.folio.read.ui.settings.SettingsScreen
 import com.folio.read.ui.settings.ThemeItemExpandState
 import com.folio.read.ui.theme.AnimationTokens
+import com.folio.read.ui.theme.FolioSeedColor
 import com.folio.read.ui.theme.FolioTheme
+import com.materialkolor.hct.Hct
+import com.materialkolor.scheme.SchemeNeutral
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
+// 进入书架页自动同步的节流窗口:避免书架↔设置高频切换时重复扫描
+private const val AUTO_SYNC_THROTTLE_MS = 10_000L
+
 class MainActivity : ComponentActivity() {
+
+    // TTS 通知/媒体栏深链:携带书 id 打开阅读页;Compose 侧观察此状态导航(可观测,onNewIntent 后触发重组)
+    var deepLinkBookId by mutableStateOf<Long?>(null)
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
+        // 冷启动被通知拉起:onCreate 里就拿到书 id,导航到阅读页
+        deepLinkBookId = intent.getLongExtra(EXTRA_BOOK_ID, -1L).takeIf { it > 0 }
         setContent {
-            AppRoot()
+            AppRoot(
+                deepLinkBookId = deepLinkBookId,
+                onDeepLinkConsumed = { deepLinkBookId = null },
+            )
         }
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        deepLinkBookId = intent.getLongExtra(EXTRA_BOOK_ID, -1L).takeIf { it > 0 }
+    }
+
+    companion object {
+        /** TTS 通知/媒体栏打开阅读页用的书 id extra(与 ReaderTtsService 共用) */
+        const val EXTRA_BOOK_ID = "book_id"
     }
 }
 
 @Composable
-private fun AppRoot() {
+private fun AppRoot(
+    deepLinkBookId: Long?,
+    onDeepLinkConsumed: () -> Unit,
+) {
     // 主题状态持久化(DataStore):启动时恢复,变更时写入
     val systemDark = isSystemInDarkTheme()
     val context = LocalContext.current
@@ -120,6 +171,9 @@ private fun AppRoot() {
     var followSystemTheme by remember { mutableStateOf(true) }
     var manualDark by remember { mutableStateOf(false) }
     var selectedSection by rememberSaveable { mutableStateOf(AppSections.Shelf) }
+
+    // 单 Activity 导航:全局唯一 NavController,提升到主题 Crossfade 之外(主题过渡期间新旧副本共用同一控制器)
+    val navController = rememberNavController()
 
     val darkTheme = if (followSystemTheme) systemDark else manualDark
 
@@ -156,21 +210,59 @@ private fun AppRoot() {
     // null=查询中(启动首帧不显示空态占位符,有书时避免闪几帧占位);empty=确实无书
     val books by bookRepo.books.collectAsState(initial = null)
 
+    // 书架后台预读:书架按 lastReadAt 置顶,顶书=最可能继续读的,提前算好缓存 → 点开秒开。
+    // 只填空不重算(与阅读页并发写由缓存校验兜底);尺寸按阅读页测量口径
+    // (Scaffold 内容区 = 窗口 - 顶栏 64dp - 状态栏 - 导航栏,再减正文留白)。
+    val density = LocalDensity.current
+    val fontFamilyResolver = LocalFontFamilyResolver.current
+    val windowSize = LocalWindowInfo.current.containerSize
+    val statusBar = WindowInsets.statusBars.getTop(density)
+    val navBar = WindowInsets.navigationBars.getBottom(density)
+    val topBar = with(density) { 64.dp.toPx() }
+    // 组合作用域内构造测量器工厂(拿内部字体解析器,后台分页用独立 TextMeasurer 与 UI 测量隔离)
+    val measurerFactory: () -> TextMeasurer = {
+        TextMeasurer(fontFamilyResolver, density, LayoutDirection.Ltr)
+    }
+    var preWarmedBookId by remember { mutableStateOf<Long?>(null) }
+    LaunchedEffect(books, fontFamilyResolver, windowSize) {
+        val top = books?.firstOrNull() ?: return@LaunchedEffect
+        if (top.id == preWarmedBookId) return@LaunchedEffect
+        preWarmedBookId = top.id
+        val textWidth = (windowSize.width - with(density) { ReaderHPadding.toPx() * 2 }).toInt()
+        val textHeight = (windowSize.height - statusBar - topBar - navBar - with(density) { ReaderVPadding.toPx() * 2 }).toInt()
+        appScope.launch {
+            preWarmBook(context, top, measurerFactory, density, textWidth, textHeight)
+        }
+    }
+
     // 阅读页返回后置顶:点开书那一刻不改书架(避免点击瞬间列表跳动割裂),
     // 从阅读页返回书架时才刷新最近阅读时间,用户看到"刚读的书移到最前"
-    var readBookId by remember { mutableStateOf<Long?>(null) }
-    // 读过书返回书架时 +1,驱动书架滚回顶部(刚读的书已置顶第 1 位)
     var scrollToTopSignal by remember { mutableIntStateOf(0) }
+    // 自动同步新增书后的滚顶:用动画滚动(新书平滑露出,位移动画自然播放);
+    // 与读完书返回的即时滚顶分开,避免深滚位置时滑太久
+    var scrollToTopAnimatedSignal by remember { mutableIntStateOf(0) }
     // 首次开启自动同步时的说明弹窗
     var showShelfSyncHint by remember { mutableStateOf(false) }
-    val readerLauncher = rememberLauncherForActivityResult(
-        ActivityResultContracts.StartActivityForResult(),
-    ) {
-        readBookId?.let { id ->
-            appScope.launch { bookRepo.markRead(id) }
-            scrollToTopSignal++
+    // 阅读页覆盖层:在 main 目的地内渲染,main 保持存活 → 退出不重组(修复退出掉帧);
+    // 覆盖层打开时 main 仍是当前目的地,返回键由 ReaderScreen 的 BackHandler 接管
+    var readerBookId by remember { mutableStateOf<Long?>(null) }
+    // 退出动画期间内容需保持组合:捕获最后非空 id 供覆盖层内容使用
+    var lastReaderBookId by remember { mutableStateOf<Long?>(null) }
+    // 许可页/添加页覆盖层:与阅读页同模式,main 保持存活,退出不重组
+    var showLicenses by remember { mutableStateOf(false) }
+    var showLibraryAdd by remember { mutableStateOf(false) }
+    // 阅读页退出回调:书 id 由状态带入,退出即置顶 + 书架滚回顶部
+    fun onReaderClose(bookId: Long) {
+        appScope.launch { bookRepo.markRead(bookId) }
+        scrollToTopSignal++
+    }
+
+    // TTS 通知/媒体栏深链:携带书 id 时打开阅读页覆盖层
+    LaunchedEffect(deepLinkBookId) {
+        deepLinkBookId?.let { id ->
+            readerBookId = id
+            onDeepLinkConsumed()
         }
-        readBookId = null
     }
 
     // 冷启动自动检查更新:有新版本且未被「关闭」忽略 → 直接弹对话框
@@ -257,17 +349,39 @@ private fun AppRoot() {
             if (enabled && dir != null) {
                 // 已移除的书(手动删除过)自动同步不再加回;手动添加会清除该记录
                 // 传 dir 给 scanLibrary:forceDir 场景(选目录后立即同步)不依赖 DataStore 异步写入
+                var added = 0
                 libraryRepo.scanLibrary(dir).forEach { (uri, _) ->
                     if (bookRepo.isRemoved(uri)) return@forEach
                     val book = bookRepo.addBook(uri)
-                    if (book != null && titleCleaner != null) {
-                        bookRepo.aiCleanBook(book, titleCleaner)
+                    if (book != null) {
+                        added++
+                        if (titleCleaner != null) {
+                            bookRepo.aiCleanBook(book, titleCleaner)
+                        }
                     }
                 }
+                // 新增书按 lastReadAt 排到书架最前:滚回顶部让用户直接看到,不用手动上拉
+                // (与「读完书返回书架滚顶」同一机制;books flow 更新后书架侧兜底再滚一次)
+                if (added > 0) scrollToTopAnimatedSignal++
             }
         }
     }
-    LaunchedEffect(Unit) { runShelfSync() }
+    // 进入书架页时自动同步(不再只启动时扫一次):从设置/阅读页/许可页回来,目录里的新书实时出现。
+    // 触发 = 书架从不可见变为可见(无覆盖层 + 书架 tab 选中);节流 10s,避免书架↔设置高频切换重复扫。
+    val shelfVisible = selectedSection == AppSections.Shelf &&
+        readerBookId == null && !showLicenses && !showLibraryAdd
+    var wasShelfVisible by remember { mutableStateOf(false) }
+    var lastAutoSyncAt by remember { mutableStateOf(0L) }
+    LaunchedEffect(shelfVisible) {
+        if (shelfVisible && !wasShelfVisible) {
+            val now = SystemClock.uptimeMillis()
+            if (now - lastAutoSyncAt >= AUTO_SYNC_THROTTLE_MS) {
+                lastAutoSyncAt = now
+                runShelfSync()
+            }
+        }
+        wasShelfVisible = shelfVisible
+    }
 
     // 添加书籍:SAF 文件选择器;重复文件(唯一索引拦截)提示用户
     val addBookLauncher = rememberLauncherForActivityResult(
@@ -299,12 +413,9 @@ private fun AppRoot() {
         }
     }
 
-    // 打开书库添加页(扫描勾选入架)
+    // 打开书库添加页(扫描勾选入架):覆盖层,main 保持存活
     fun openLibraryAdd() {
-        context.startActivity(
-            Intent(context, LibraryAddActivity::class.java)
-                .putExtra(LibraryAddActivity.EXTRA_DARK_THEME, darkTheme),
-        )
+        showLibraryAdd = true
     }
 
     // 添加书库目录:SAF 目录选择器,选择后持久化;自动同步开启时选完立即扫描
@@ -320,10 +431,15 @@ private fun AppRoot() {
         }
     }
 
-    // 系统栏图标明暗跟随实际生效主题,避免深色顶栏配深色图标看不见
+    // 系统栏图标明暗跟随实际生效主题 + 窗口背景随主题(防深色打开页面时白闪)。
+    // 单 Activity 后窗口全局唯一,这里一处搞定(原 5 个 Activity 各自重复的副本随迁移删除)
     val activity = LocalContext.current as? Activity
+    val windowScheme = remember(darkTheme) {
+        SchemeNeutral(Hct.fromInt(FolioSeedColor.toArgb()), darkTheme, contrastLevel = 0.0)
+    }
     SideEffect {
         activity?.window?.let { window ->
+            window.decorView.setBackgroundColor(windowScheme.background.toInt())
             WindowCompat.getInsetsController(window, window.decorView).apply {
                 isAppearanceLightStatusBars = !darkTheme
                 isAppearanceLightNavigationBars = !darkTheme
@@ -339,8 +455,32 @@ private fun AppRoot() {
         label = "themeTransition",
     ) { theme ->
         FolioTheme(darkTheme = theme) {
-            Scaffold(
-                modifier = Modifier.fillMaxSize(),
+            NavHost(
+                navController = navController,
+                startDestination = AppRoutes.MAIN,
+                // 页面跳转轻推(350ms,1/16 屏宽)移植自 Book's Story(其页面切换统一用该过渡):
+                // 前进=新页从右滑入+旧页向左滑出,返回=反向;解决了原「Tab 有动画、页面走系统过渡」的割裂
+                enterTransition = {
+                    fadeIn(tween(AnimationTokens.XL)) +
+                        slideInHorizontally(tween(AnimationTokens.XL)) { it / 16 }
+                },
+                exitTransition = {
+                    fadeOut(tween(AnimationTokens.XL)) +
+                        slideOutHorizontally(tween(AnimationTokens.XL)) { -it / 16 }
+                },
+                popEnterTransition = {
+                    fadeIn(tween(AnimationTokens.XL)) +
+                        slideInHorizontally(tween(AnimationTokens.XL)) { -it / 16 }
+                },
+                popExitTransition = {
+                    fadeOut(tween(AnimationTokens.XL)) +
+                        slideOutHorizontally(tween(AnimationTokens.XL)) { it / 16 }
+                },
+            ) {
+                composable(AppRoutes.MAIN) {
+                    // 阅读页覆盖层需要盖住顶栏/底栏,main 目的地根节点包 Box
+                    Box(modifier = Modifier.fillMaxSize()) {
+                    Scaffold(                modifier = Modifier.fillMaxSize(),
                 // 各页面自带 TopAppBar 负责状态栏内边距,外层 Scaffold 不再叠加顶部 inset
                 contentWindowInsets = WindowInsets(0, 0, 0, 0),
                 // 共享顶栏(背景固定,避免透出底色变暗):标题动画在 FolioTopBar 内做
@@ -484,6 +624,7 @@ private fun AppRoot() {
                             shelfLayout = shelfLayout,
                             selectedBookIds = selectedBookIds,
                             scrollToTopSignal = scrollToTopSignal,
+                            scrollToTopAnimatedSignal = scrollToTopAnimatedSignal,
                             onToggleSelect = { book ->
                                 selectedBookIds =
                                     if (book.id in selectedBookIds) selectedBookIds - book.id
@@ -494,13 +635,8 @@ private fun AppRoot() {
                                 // 先查源文件可读性:被外部删除/不可读时书架层弹框,不进阅读页
                                 appScope.launch {
                                     if (bookRepo.isReadable(book)) {
-                                        // 记录打开的书,返回书架时再置顶(避免点击瞬间列表跳动)
-                                        readBookId = book.id
-                                        readerLauncher.launch(
-                                            Intent(context, ReaderActivity::class.java)
-                                                .putExtra(ReaderActivity.EXTRA_BOOK_ID, book.id)
-                                                .putExtra(ReaderActivity.EXTRA_DARK_THEME, darkTheme),
-                                        )
+                                        // 打开阅读页覆盖层;快速连点置同一本书是幂等 no-op(无栈可叠)
+                                        readerBookId = book.id
                                     } else {
                                         openFailedBook = book
                                     }
@@ -516,7 +652,7 @@ private fun AppRoot() {
                                 manualDark = newValue
                                 appScope.launch { settingsRepo.setManualDark(newValue) }
                             },
-                            darkTheme = darkTheme,
+                            onOpenLicenses = { showLicenses = true },
                             libraryDirName = libraryDirName,
                             onSelectLibrary = { addLibraryLauncher.launch(null) },
                             shelfSync = shelfSync.enabled,
@@ -559,6 +695,11 @@ private fun AppRoot() {
             // 选择模式下返回键退出选择,而非退出应用
             BackHandler(enabled = selectedBookIds.isNotEmpty()) {
                 selectedBookIds = emptySet()
+            }
+
+            // 设置页返回:切回书架 tab(返回手势语义=回到上一界面,而非退出应用)
+            BackHandler(enabled = selectedSection == AppSections.Settings) {
+                selectedSection = AppSections.Shelf
             }
 
             // 冷启动检测到新版本:下载(浏览器)/关闭(记住该版本,本次不再提醒;更更新的版本仍会提示)
@@ -649,13 +790,21 @@ private fun AppRoot() {
                         onDismissRequest = { showRenameDialog = false },
                         title = { Text(text = stringResource(R.string.shelf_rename_dialog_title)) },
                         text = {
-                            OutlinedTextField(
-                                value = renameText,
-                                onValueChange = { renameText = it },
-                                label = { Text(text = stringResource(R.string.shelf_rename_label)) },
-                                singleLine = true,
-                                modifier = Modifier.fillMaxWidth(),
-                            )
+                            // 浮动 label 在真机上首帧 ~68ms(浮起动画+测量),改普通 Text 标签放字段上方
+                            Column {
+                                Text(
+                                    text = stringResource(R.string.shelf_rename_label),
+                                    style = MaterialTheme.typography.labelLarge,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                                Spacer(modifier = Modifier.height(4.dp))
+                                OutlinedTextField(
+                                    value = renameText,
+                                    onValueChange = { renameText = it },
+                                    singleLine = true,
+                                    modifier = Modifier.fillMaxWidth(),
+                                )
+                            }
                         },
                         confirmButton = {
                             TextButton(
@@ -692,6 +841,53 @@ private fun AppRoot() {
                     },
                 )
             }
+            // 阅读页覆盖层:最后渲染叠在最上;main 保持存活,退出不重组(与目录覆盖层同模式)
+            // 进入=从右滑入(前进),退出=向右滑出(弹回书架方向,与 NavHost popExit 一致)
+            if (readerBookId != null) lastReaderBookId = readerBookId
+            AnimatedVisibility(
+                visible = readerBookId != null,
+                modifier = Modifier.fillMaxSize(),
+                enter = fadeIn(tween(AnimationTokens.XL)) +
+                    slideInHorizontally(tween(AnimationTokens.XL)) { it / 16 },
+                exit = fadeOut(tween(AnimationTokens.XL)) +
+                    slideOutHorizontally(tween(AnimationTokens.XL)) { it / 16 },
+            ) {
+                lastReaderBookId?.let { id ->
+                    ReaderScreen(
+                        bookId = id,
+                        darkTheme = theme,
+                        onClose = {
+                            onReaderClose(id)
+                            readerBookId = null
+                        },
+                    )
+                }
+            }
+            // 许可页覆盖层:与阅读页同模式,main 保持存活,退出不重组
+            AnimatedVisibility(
+                visible = showLicenses,
+                modifier = Modifier.fillMaxSize(),
+                enter = fadeIn(tween(AnimationTokens.XL)) +
+                    slideInHorizontally(tween(AnimationTokens.XL)) { it / 16 },
+                exit = fadeOut(tween(AnimationTokens.XL)) +
+                    slideOutHorizontally(tween(AnimationTokens.XL)) { it / 16 },
+            ) {
+                LicensesScreen(onBack = { showLicenses = false })
+            }
+            // 添加页覆盖层
+            AnimatedVisibility(
+                visible = showLibraryAdd,
+                modifier = Modifier.fillMaxSize(),
+                enter = fadeIn(tween(AnimationTokens.XL)) +
+                    slideInHorizontally(tween(AnimationTokens.XL)) { it / 16 },
+                exit = fadeOut(tween(AnimationTokens.XL)) +
+                    slideOutHorizontally(tween(AnimationTokens.XL)) { it / 16 },
+            ) {
+                LibraryAddScreen(onBack = { showLibraryAdd = false })
+            }
+            }
+            }
+        }
         }
     }
 }

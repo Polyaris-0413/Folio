@@ -77,7 +77,6 @@ import com.folio.read.ui.components.groupItemShape
 import com.folio.read.ui.components.groupItemSpacing
 import com.folio.read.ui.components.groupTitleSpacing
 import com.folio.read.ui.components.listItemColors
-import com.folio.read.ui.licenses.LicensesActivity
 import com.folio.read.ui.theme.AnimationTokens
 import kotlin.math.roundToInt
 import kotlinx.coroutines.CoroutineScope
@@ -144,7 +143,7 @@ fun SettingsScreen(
     followSystemTheme: Boolean,
     manualDark: Boolean,
     onManualDarkChange: (Boolean) -> Unit,
-    darkTheme: Boolean,
+    onOpenLicenses: () -> Unit,
     libraryDirName: String?,
     onSelectLibrary: () -> Unit,
     shelfSync: Boolean,
@@ -515,11 +514,7 @@ fun SettingsScreen(
                         modifier = Modifier
                             .clip(groupItemShape(4, 5))
                             .clickable {
-                                // 独立 Activity:主题跟随来源页面选择
-                                context.startActivity(
-                                    Intent(context, LicensesActivity::class.java)
-                                        .putExtra(LicensesActivity.EXTRA_DARK_THEME, darkTheme),
-                                )
+                                onOpenLicenses()
                             },
                     )
                 }

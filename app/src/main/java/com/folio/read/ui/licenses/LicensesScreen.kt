@@ -1,13 +1,8 @@
 package com.folio.read.ui.licenses
 
-import android.app.Activity
-import android.os.Bundle
-import androidx.activity.ComponentActivity
-import androidx.activity.compose.setContent
-import androidx.activity.enableEdgeToEdge
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.isSystemInDarkTheme
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -29,7 +24,6 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -40,7 +34,6 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
-import androidx.core.view.WindowCompat
 import com.folio.read.R
 import com.folio.read.ui.components.FolioAlertDialog
 import com.folio.read.ui.components.FolioTopBar
@@ -50,41 +43,16 @@ import com.folio.read.ui.components.groupItemSpacing
 import com.folio.read.ui.components.leadingItemShape
 import com.folio.read.ui.components.listItemColors
 import com.folio.read.ui.components.middleItemShape
-import com.folio.read.ui.theme.FolioTheme
 import com.mikepenz.aboutlibraries.Libs
 import com.mikepenz.aboutlibraries.entity.Library
 
 /**
- * 开源协议页:独立 Activity。
+ * 开源协议页(单 Activity 目的地)。
  * 库清单由 AboutLibraries 插件在构建时自动生成(aboutlibraries.json),
  * 列表复用设置页的拼接圆角卡片样式。
  */
-class LicensesActivity : ComponentActivity() {
-
-    companion object {
-        const val EXTRA_DARK_THEME = "extra_dark_theme"
-    }
-
-    override fun onCreate(savedInstanceState: Bundle?) {
-        super.onCreate(savedInstanceState)
-        enableEdgeToEdge()
-        setContent {
-            // 主题跟随来源页面传入的选择(手动深浅或跟随系统)
-            val darkTheme = intent?.getBooleanExtra(EXTRA_DARK_THEME, isSystemInDarkTheme())
-                ?: isSystemInDarkTheme()
-            FolioTheme(darkTheme = darkTheme) {
-                LicensesScreenContent(
-                    darkTheme = darkTheme,
-                    onBack = { finish() },
-                )
-            }
-        }
-    }
-}
-
 @Composable
-private fun LicensesScreenContent(
-    darkTheme: Boolean,
+fun LicensesScreen(
     onBack: () -> Unit,
 ) {
     val context = LocalContext.current
@@ -98,16 +66,8 @@ private fun LicensesScreenContent(
     }
     var selectedLibrary by remember { mutableStateOf<Library?>(null) }
 
-    // 系统栏图标明暗跟随生效主题
-    val activity = LocalContext.current as? Activity
-    SideEffect {
-        activity?.window?.let { window ->
-            WindowCompat.getInsetsController(window, window.decorView).apply {
-                isAppearanceLightStatusBars = !darkTheme
-                isAppearanceLightNavigationBars = !darkTheme
-            }
-        }
-    }
+    // 手势返回与顶栏返回按钮同行为:关闭覆盖层回书架(单 Activity 覆盖层需自行接管返回键)
+    BackHandler(enabled = true) { onBack() }
 
     Box(
         modifier = Modifier

@@ -6,11 +6,18 @@ package com.folio.read.ui.screens
  * SPDX-License-Identifier: GPL-3.0-only
  */
 
+import android.graphics.Bitmap
+import android.graphics.Canvas
+import android.graphics.LinearGradient
+import android.graphics.Paint
+import android.graphics.Shader
+import android.graphics.Typeface
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -41,10 +48,13 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.painterResource
@@ -93,6 +103,7 @@ fun ShelfScreen(
     selectedBookIds: Set<Long>,
     /** 读过书返回书架时 +1,触发滚回顶部(刚读的书已置顶第 1 位,让用户直接看到) */
     scrollToTopSignal: Int = 0,
+    scrollToTopAnimatedSignal: Int = 0,
     onToggleSelect: (Book) -> Unit,
     onAddBook: () -> Unit,
     onOpenBook: (Book) -> Unit,
@@ -116,8 +127,11 @@ fun ShelfScreen(
                 ShelfLayoutMode.ADAPTIVE -> GridCells.Adaptive(minSize = 152.dp)
             }
             // 读过书返回时滚回顶部(scrollToTopSignal 每次 +1);需等数据就绪(books 非空)
-            LaunchedEffect(scrollToTopSignal, books) {
-                if (scrollToTopSignal > 0 && books != null) {
+            LaunchedEffect(scrollToTopSignal, scrollToTopAnimatedSignal, books) {
+                if (scrollToTopAnimatedSignal > 0 && books != null) {
+                    // 自动同步新书:动画滚顶,新书平滑露出(位移动画不被瞬间跳转截断)
+                    gridState.animateScrollToItem(0)
+                } else if (scrollToTopSignal > 0 && books != null) {
                     gridState.scrollToItem(0)
                 }
             }
@@ -187,55 +201,105 @@ fun ShelfScreen(
  * 竖排时过滤标点符号(如「三体(全集)」→「三体全集」):Legado 竖排不处理成对标点,
  * 括号会单独成列、读序崩坏(三/体//(/全/集/)/);封面仅作装饰,展示名与正式书名解耦。
  */
+/**
+ * 封面横排书名(仅拉丁书名,如 "Book's Story")。竖排书名已走位图渲染(renderCoverBitmap),
+ * 此组件只服务 CoverArtwork 的横排分支——曾经的竖排分支(单 Text+换行)已由位图取代。
+ */
 @Composable
 private fun CoverTitle(name: String, modifier: Modifier = Modifier) {
     BoxWithConstraints(modifier = modifier) {
         val density = LocalDensity.current
         val textSize = with(density) { maxWidth.toPx() / 8f }
         val textSizeSp = with(density) { textSize.toSp() }
-        // 含拉丁字母(如 "Book's Story")强制横排,否则竖排(书脊式)
-        val isHorizontal = name.count { it in 'A'..'Z' || it in 'a'..'z' }.toFloat() / name.length > 0.3f
-        if (isHorizontal) {
-            Text(
-                text = name,
-                fontSize = textSizeSp,
-                fontWeight = FontWeight.Bold,
-                color = Color.White,
-                textAlign = TextAlign.Center,
-                maxLines = 3,
-                overflow = TextOverflow.Ellipsis,
-                modifier = Modifier
-                    .fillMaxWidth(0.8f)
-                    .align(Alignment.Center),
-            )
-        } else {
-            // 竖排:逐字竖排,列满换列;列间距 = 字宽 × 1.2
-            with(density) {
-                val charHeight = textSize * 1.2f
-                val perColumn = floor(maxHeight.toPx() * 0.6f / charHeight).toInt().coerceAtLeast(1)
-                val columns = name.filter { it.isLetterOrDigit() }.toList().chunked(perColumn)
-                Row(
-                    horizontalArrangement = Arrangement.spacedBy((textSize * 0.2f).toDp()),
-                    modifier = Modifier.align(Alignment.Center),
-                ) {
-                    columns.forEach { column ->
-                        Column {
-                            column.forEach { char ->
-                                Text(
-                                    text = char.toString(),
-                                    fontSize = textSizeSp,
-                                    fontWeight = FontWeight.Bold,
-                                    color = Color.White,
-                                    lineHeight = (charHeight * 1.05f).toSp(),
-                                    modifier = Modifier.height((charHeight * 1.05f).toDp()),
-                                )
-                            }
-                        }
-                    }
+        Text(
+            text = name,
+            fontSize = textSizeSp,
+            fontWeight = FontWeight.Bold,
+            color = Color.White,
+            textAlign = TextAlign.Center,
+            maxLines = 3,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier
+                .fillMaxWidth(0.8f)
+                .align(Alignment.Center),
+        )
+    }
+}
+
+/** 封面位图进程级缓存:书架重组(退出阅读页弹回)时目的地被销毁重建,remember 会丢,位图须跨组合存活 */
+private object CoverCache {
+    private val cache = mutableMapOf<String, Bitmap>()
+
+    fun get(key: String, render: () -> Bitmap): Bitmap = cache.getOrPut(key, render)
+}
+
+/**
+ * 封面图:渐变 + 书名。竖排书名渲染成位图缓存——书架重组时逐字 Text 节点
+ * 是退出阅读页 ~200ms 掉帧的根因,位图直接画零组合成本;横排(拉丁书名)罕见,保持 Compose 渲染。
+ */
+@Composable
+private fun CoverArtwork(book: Book, gradient: List<Color>, modifier: Modifier = Modifier) {
+    val title = book.title.ifEmpty { stringResource(R.string.book_cover_placeholder) }
+    val isHorizontal = title.count { it in 'A'..'Z' || it in 'a'..'z' }.toFloat() / title.length > 0.3f
+    if (isHorizontal) {
+        Box(modifier = modifier.background(Brush.verticalGradient(gradient)), contentAlignment = Alignment.Center) {
+            CoverTitle(title)
+        }
+    } else {
+        BoxWithConstraints(modifier = modifier) {
+            val w = constraints.maxWidth
+            val h = constraints.maxHeight
+            val bitmap = remember(w, h, book.id, title) {
+                CoverCache.get("${book.id}|$title|${w}x${h}|v2") {
+                    renderCoverBitmap(w, h, title, gradient)
                 }
             }
+            Image(bitmap = bitmap.asImageBitmap(), contentDescription = null, modifier = Modifier.fillMaxSize())
         }
     }
+}
+
+/** 竖排封面位图:渐变底 + 白字竖排(字号=宽÷8,列间距=字宽×0.2,行距=字宽×1.2×1.05),与 CoverTitle 竖排分支同口径 */
+private fun renderCoverBitmap(width: Int, height: Int, title: String, gradient: List<Color>): Bitmap {
+    val bmp = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
+    val canvas = Canvas(bmp)
+    canvas.drawRect(
+        0f, 0f, width.toFloat(), height.toFloat(),
+        Paint().apply {
+            shader = LinearGradient(
+                0f, 0f, 0f, height.toFloat(),
+                gradient.map { it.toArgb() }.toIntArray(), null, Shader.TileMode.CLAMP,
+            )
+        },
+    )
+    val textSize = width / 8f
+    val textPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        this.textSize = textSize
+        typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
+        color = android.graphics.Color.WHITE
+    }
+    val chars = title.filter { it.isLetterOrDigit() }
+    val charHeight = textSize * 1.2f
+    val perColumn = floor(height * 0.6f / charHeight).toInt().coerceAtLeast(1)
+    val columns = chars.toList().chunked(perColumn)
+    val columnGap = textSize * 0.2f
+    val totalW = columns.size * textSize + (columns.size - 1) * columnGap
+    // drawText 的 x 是文字左缘:列块左缘对齐居中(此前多加了 textSize/2 导致整体右偏)
+    var x = (width - totalW) / 2f
+    // 每行盒高与 CoverTitle 的 lineHeight 一致;基线按字体度量把字形垂直居中于行盒
+    val lineH = charHeight * 1.05f
+    val fm = textPaint.fontMetrics
+    for (column in columns) {
+        val blockH = column.size * lineH
+        val blockTop = (height - blockH) / 2f
+        var y = blockTop + (lineH - (fm.descent - fm.ascent)) / 2f - fm.ascent
+        for (char in column) {
+            canvas.drawText(char.toString(), x, y, textPaint)
+            y += lineH
+        }
+        x += textSize + columnGap
+    }
+    return bmp
 }
 
 /** 书籍卡片:专属渐变封面(完整书名)+ 书名;选中时主题色边框+封面罩色(淡入淡出) */
@@ -272,11 +336,10 @@ private fun BookCard(
             modifier = Modifier
                 .fillMaxWidth()
                 .aspectRatio(3f / 4f)
-                .clip(shape)
-                .background(Brush.verticalGradient(gradient)),
+                .clip(shape),
             contentAlignment = Alignment.Center,
         ) {
-            CoverTitle(book.title.ifEmpty { stringResource(R.string.book_cover_placeholder) })
+            CoverArtwork(book = book, gradient = gradient, modifier = Modifier.fillMaxSize())
             Box(
                 modifier = Modifier
                     .matchParentSize()
@@ -328,11 +391,10 @@ private fun BookRowCard(
             modifier = Modifier
                 .width(72.dp)
                 .aspectRatio(3f / 4f)
-                .clip(shape)
-                .background(Brush.verticalGradient(gradient)),
+                .clip(shape),
             contentAlignment = Alignment.Center,
         ) {
-            CoverTitle(book.title.ifEmpty { stringResource(R.string.book_cover_placeholder) })
+            CoverArtwork(book = book, gradient = gradient, modifier = Modifier.fillMaxSize())
             Box(
                 modifier = Modifier
                     .matchParentSize()

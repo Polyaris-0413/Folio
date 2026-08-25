@@ -5,8 +5,10 @@ import android.net.Uri
 import android.provider.DocumentsContract
 import android.provider.OpenableColumns
 import com.folio.read.R
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.withContext
 
 /** 书籍仓库:书架数据入口,基于 Room */
 class BookRepository(context: Context) {
@@ -74,11 +76,14 @@ class BookRepository(context: Context) {
         dao.updateTitle(id, title)
     }
 
-    /** 源文件当前是否可读(SAF 查询);外部删除/权限丢失/URI 失效时返回 false,不抛异常 */
-    fun isReadable(book: Book): Boolean = runCatching {
-        appContext.contentResolver.query(Uri.parse(book.filePath), null, null, null, null)
-            ?.use { true } ?: false
-    }.getOrDefault(false)
+    /** 源文件当前是否可读(SAF 查询);外部删除/权限丢失/URI 失效时返回 false,不抛异常。
+     * suspend + IO:点书前检查走 binder,主线程会卡(点书瞬间数百 ms 掉帧),挪后台 */
+    suspend fun isReadable(book: Book): Boolean = withContext(Dispatchers.IO) {
+        runCatching {
+            appContext.contentResolver.query(Uri.parse(book.filePath), null, null, null, null)
+                ?.use { true } ?: false
+        }.getOrDefault(false)
+    }
 
     /**
      * 修复历史数据:把书库(tree)来源的 document 形式 filePath 重建为可读的
