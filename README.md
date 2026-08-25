@@ -1,4 +1,4 @@
-<h1 align="center"> Folio </h1>
+# Folio
 中文名：拾页
 
 一款注重细节的本地阅读器
