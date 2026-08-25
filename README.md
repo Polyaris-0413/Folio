@@ -6,8 +6,6 @@
 
 <p align="center">一款注重细节的本地阅读器</p>
 
-<p align="center">基于 Kotlin + Jetpack Compose 构建<br>适用于 Android 12 及以上的系统</p>
-
 <p align="center">
   <a href="https://github.com/Polyaris-0413/Folio/releases">
     <img src="https://img.shields.io/github/v/release/Polyaris-0413/Folio?label=下载&color=0a0a0a" alt="Release" />
