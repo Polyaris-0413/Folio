@@ -6,9 +6,6 @@
 
 <p align="center">一款注重细节的本地阅读器</p>
 
-<p align="center">
-  <a href="https://github.com/Polyaris-0413/Folio/releases">
-    <img src="https://img.shields.io/github/v/release/Polyaris-0413/Folio?label=下载&color=0a0a0a" alt="Release" />
   </a>
   <img src="https://img.shields.io/badge/Android-12%2B-0a0a0a" alt="Android 12+" />
   <img src="https://img.shields.io/badge/License-GPL--3.0-0a0a0a" alt="License GPL-3.0" />
