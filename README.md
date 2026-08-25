@@ -11,7 +11,6 @@
   <a href="https://github.com/Polyaris-0413/Folio/releases">
     <img src="https://img.shields.io/github/v/release/Polyaris-0413/Folio?color=0a0a0a" alt="Release" />
   </a>
-  <img src="https://img.shields.io/badge/License-GPL--3.0-0a0a0a" alt="License GPL-3.0" />
   <img src="https://img.shields.io/github/stars/Polyaris-0413/Folio?style=flat&color=0a0a0a" alt="GitHub Stars" />
 </p>
 
