@@ -3,6 +3,9 @@ plugins {
     alias(libs.plugins.kotlin.compose)
     alias(libs.plugins.aboutlibraries)
     alias(libs.plugins.ksp)
+    // Baseline Profile 录制:app 内建生成任务 :app:generateBaselineProfile,录制产物自动落
+    // src/release/generated/baselineProfiles(release 变体专属源集,与 src/main 手写版共存)
+    alias(libs.plugins.androidx.baselineprofile)
 }
 
 android {
@@ -85,6 +88,8 @@ dependencies {
     androidTestImplementation(libs.androidx.compose.ui.test.junit4)
     androidTestImplementation(libs.androidx.espresso.core)
     androidTestImplementation(libs.androidx.junit)
+    // Baseline Profile 录制模块:generateBaselineProfile 消费其产物,合并进 release
+    baselineProfile(project(":baselineprofile"))
     debugImplementation(libs.androidx.compose.ui.test.manifest)
     debugImplementation(libs.androidx.compose.ui.tooling)
 }

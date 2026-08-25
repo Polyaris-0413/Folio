@@ -20,6 +20,7 @@ okhttp = "4.12.0"
 coreSplashscreen = "1.2.0"
 navigationCompose = "2.9.8"
 profileinstaller = "1.4.1"
+benchmark = "1.5.0-rc01"
 
 [libraries]
 androidx-core-ktx = { group = "androidx.core", name = "core-ktx", version.ref = "coreKtx" }
@@ -48,10 +49,13 @@ androidx-core-splashscreen = { group = "androidx.core", name = "core-splashscree
 okhttp = { group = "com.squareup.okhttp3", name = "okhttp", version.ref = "okhttp" }
 androidx-navigation-compose = { group = "androidx.navigation", name = "navigation-compose", version.ref = "navigationCompose" }
 androidx-profileinstaller = { group = "androidx.profileinstaller", name = "profileinstaller", version.ref = "profileinstaller" }
+androidx-benchmark-macro-junit4 = { group = "androidx.benchmark", name = "benchmark-macro-junit4", version.ref = "benchmark" }
 
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }
 kotlin-compose = { id = "org.jetbrains.kotlin.plugin.compose", version.ref = "kotlin" }
 aboutlibraries = { id = "com.mikepenz.aboutlibraries.plugin", version.ref = "aboutlibrariesPlugin" }
 ksp = { id = "com.google.devtools.ksp", version.ref = "ksp" }
+androidx-baselineprofile = { id = "androidx.baselineprofile", version.ref = "benchmark" }
+android-test = { id = "com.android.test", version.ref = "agp" }
 
