@@ -8,6 +8,14 @@
 
 <p align="center">基于 Kotlin + Jetpack Compose 构建<br>适用于 Android 12 及以上的系统</p>
 
+<p align="center">
+  <a href="https://github.com/Polyaris-0413/Folio/releases">
+    <img src="https://img.shields.io/github/v/release/Polyaris-0413/Folio?label=下载&color=0a0a0a" alt="Release" />
+  </a>
+  <img src="https://img.shields.io/badge/Android-12%2B-0a0a0a" alt="Android 12+" />
+  <img src="https://img.shields.io/badge/License-GPL--3.0-0a0a0a" alt="License GPL-3.0" />
+</p>
+
 ## 特性
 * 无广告、无追踪、无内购
 * 使用 Material Design 3 设计
