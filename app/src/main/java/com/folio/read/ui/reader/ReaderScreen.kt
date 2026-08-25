@@ -22,8 +22,6 @@ import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.Crossfade
 import androidx.core.content.ContextCompat
 import androidx.compose.animation.core.Animatable
-import androidx.compose.animation.core.Spring
-import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -223,6 +221,7 @@ fun ReaderScreen(
  * 字号照搬 Legado 默认 20sp;行距 49sp 时每页仅 13 行、页底余白偏大,
  * 收紧为 44sp(≈字号×2.2)后每页 14 行,页底更满。
  */
+// 书架预读复用(同模块 internal)
 internal val ReaderStyle = TextStyle(fontSize = 20.sp, lineHeight = 44.sp)
 
 /** 分页缓存键中的排版签名:字号/行距/章节规则/文本处理变化会使分页边界失效 */
@@ -233,14 +232,6 @@ internal val ReaderStyleKey: String =
  * 水平 20dp:正文宽 = 屏宽-2×20dp,对 20sp(80px)字宽正好 16 字/行整除,右缘无剩余半字 */
 internal val ReaderHPadding = 20.dp
 internal val ReaderVPadding = 16.dp
-
-/**
- * 翻页落定 spring:默认 StiffnessMediumLow(1200)偏硬,翻页像"弹"过去的;
- * StiffnessLow(400)更柔和,页落定有轻微减速感。点击翻页(animateScrollToPage)
- * 与滑动翻页(flingBehavior 低速段)共用,保证两种手势手感一致。
- */
-private val PageFlipSpring: androidx.compose.animation.core.AnimationSpec<Float> =
-    spring(dampingRatio = Spring.DampingRatioNoBouncy, stiffness = Spring.StiffnessLow)
 
 /** 单章分页:章内起始字符偏移列表(绝对下标),末项 = 章末哨兵;每章十几页,毫秒级 */
 internal fun chapterPagesOf(
@@ -854,7 +845,6 @@ private fun ReaderPager(
                                                 val target = pagerState.currentPage + if (next) 1 else -1
                                                 pagerState.animateScrollToPage(
                                                     target.coerceIn(0, pageCount - 1),
-                                                    animationSpec = PageFlipSpring,
                                                 )
                                             }
                                         }
