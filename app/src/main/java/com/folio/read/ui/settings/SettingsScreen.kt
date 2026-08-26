@@ -5,7 +5,6 @@ import android.net.Uri
 import android.widget.Toast
 import androidx.annotation.DrawableRes
 import androidx.compose.animation.core.Animatable
-import androidx.compose.animation.core.VectorConverter
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -23,7 +22,6 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.wrapContentHeight
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Button
 import androidx.compose.material3.OutlinedButton
@@ -56,7 +54,6 @@ import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
-import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.folio.read.R
@@ -70,13 +67,13 @@ import com.folio.read.data.UpdateCheckResult
 import com.folio.read.data.UpdateChecker
 import com.folio.read.data.compareVersions
 import com.folio.read.ui.components.UpdateDialog
-import com.folio.read.ui.components.connectedCornerRadius
-import com.folio.read.ui.components.endCornerRadius
 import com.folio.read.ui.components.endItemShape
 import com.folio.read.ui.components.groupItemShape
 import com.folio.read.ui.components.groupItemSpacing
 import com.folio.read.ui.components.groupTitleSpacing
+import com.folio.read.ui.components.leadingItemShape
 import com.folio.read.ui.components.listItemColors
+import com.folio.read.ui.components.middleItemShape
 import com.folio.read.ui.theme.AnimationTokens
 import kotlin.math.roundToInt
 import kotlinx.coroutines.CoroutineScope
@@ -88,9 +85,11 @@ private const val GITHUB_REPO_URL = "https://github.com/Polyaris-0413/Folio"
 private const val GITHUB_ISSUES_URL = "$GITHUB_REPO_URL/issues/new"
 
 /**
- * "系统主题"项的展开状态:展开进度、圆角与动画序列。
+ * "系统主题"项的展开状态:展开进度与动画序列。
  * 由 MainActivity 在主题 Crossfade 之外持有;展开高度由共享进度驱动,
  * 主题切换重建页面副本时,新副本读取同一进度继续动画,不中断。
+ * (曾试官方 AnimatedVisibility + expandVertically(book-story 方案),实测掉帧与
+ * 共享进度方案相同,且主题 Crossfade 双树时动画不重放,故保留本方案)
  */
 class ThemeItemExpandState(
     initialVisible: Boolean,
@@ -99,17 +98,12 @@ class ThemeItemExpandState(
 ) {
     /** 展开进度:0 = 收起,1 = 展开 */
     val expandProgress = Animatable(if (initialVisible) 1f else 0f)
-    val bottomRadius = Animatable(
-        initialValue = if (initialVisible) connectedCornerRadius else endCornerRadius,
-        typeConverter = Dp.VectorConverter,
-    )
     private var animJob: Job? = null
 
     /** 启动恢复:直接跳到目标展开状态,不播放动画 */
     suspend fun restore(expanded: Boolean) {
         animJob?.cancel()
         expandProgress.snapTo(if (expanded) 1f else 0f)
-        bottomRadius.snapTo(if (expanded) connectedCornerRadius else endCornerRadius)
     }
 
     fun onToggle(newValue: Boolean) {
@@ -117,15 +111,7 @@ class ThemeItemExpandState(
         onFollowSystemThemeChange(newValue)
         // 动画协程用调用方传入的 composition scope(随页面生命周期取消)
         animJob = animationScope.launch {
-            if (!newValue) {
-                // 展开:先收圆角(Micro),再展开内容(Medium)
-                bottomRadius.animateTo(connectedCornerRadius, tween(AnimationTokens.Micro))
-                expandProgress.animateTo(1f, tween(AnimationTokens.Medium))
-            } else {
-                // 收起:先折叠(Medium),再复原圆角(Micro)
-                expandProgress.animateTo(0f, tween(AnimationTokens.Medium))
-                bottomRadius.animateTo(endCornerRadius, tween(AnimationTokens.Micro))
-            }
+            expandProgress.animateTo(if (newValue) 0f else 1f, tween(AnimationTokens.Medium))
         }
     }
 }
@@ -143,6 +129,8 @@ fun SettingsScreen(
     followSystemTheme: Boolean,
     manualDark: Boolean,
     onManualDarkChange: (Boolean) -> Unit,
+    dynamicColor: Boolean,
+    onDynamicColorChange: (Boolean) -> Unit,
     onOpenLicenses: () -> Unit,
     libraryDirName: String?,
     onSelectLibrary: () -> Unit,
@@ -217,27 +205,22 @@ fun SettingsScreen(
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier.padding(start = 16.dp, bottom = groupTitleSpacing),
                     )
-                    Column(verticalArrangement = Arrangement.spacedBy(groupItemSpacing)) {
-                    ListItem(
-                        headlineContent = { Text(text = stringResource(R.string.settings_follow_system_theme)) },
-                        leadingContent = { SettingsIcon(R.drawable.ic_settings_theme) },
+                    Column {
+                        ListItem(
+                            headlineContent = { Text(text = stringResource(R.string.settings_follow_system_theme)) },
+                            leadingContent = { SettingsIcon(R.drawable.ic_settings_theme) },
                             trailingContent = {
                                 Switch(
                                     checked = followSystemTheme,
                                     onCheckedChange = expandState::onToggle,
                                 )
                             },
-                        colors = listItemColors(),
-                        // 独立项(全圆角)⇄ 组首(下贴直角)的圆角过渡由 bottomRadius 驱动
-                        modifier = Modifier.clip(
-                            RoundedCornerShape(
-                                topStart = endCornerRadius,
-                                topEnd = endCornerRadius,
-                                bottomEnd = expandState.bottomRadius.value,
-                                bottomStart = expandState.bottomRadius.value,
-                            ),
-                        ),
-                    )
+                            colors = listItemColors(),
+                            // 组首:下缘恒为贴合圆角(展开时贴展开区,收起时贴动态取色行)
+                            modifier = Modifier
+                                .padding(bottom = groupItemSpacing)
+                                .clip(leadingItemShape()),
+                        )
                         // 展开/收起由共享的 expandProgress 驱动高度(替代 AnimatedVisibility):
                         // 主题切换重建副本时,新副本从同一进度继续动画,不中断
                         var fullHeightPx by remember { mutableIntStateOf(0) }
@@ -249,8 +232,8 @@ fun SettingsScreen(
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .height(itemHeight)
-                                // 裁剪形状与内容一致(上 4dp 圆角),避免直角裁剪在展开初期切出尖角
-                                .clip(endItemShape()),
+                                // 裁剪形状与内容一致(上下 4dp 圆角),避免直角裁剪在展开初期切出尖角
+                                .clip(middleItemShape()),
                         ) {
                             // 内容按完整高度测量(unbounded 无视父级高度约束),父级裁剪实现收起/展开;
                             // 每次量到非零高度都刷新,避免某次组合量出 0 后展开区永久不可见(Android 12 曾出现)
@@ -264,7 +247,7 @@ fun SettingsScreen(
                                 // 图标 + 标题一行,分段按钮全宽铺在下方,避免 ListItem 缩进错位
                                 Column(
                                     modifier = Modifier
-                                        .clip(endItemShape())
+                                        .clip(middleItemShape())
                                         .background(listItemColors().containerColor)
                                         .padding(horizontal = 16.dp, vertical = 12.dp),
                                 ) {
@@ -296,7 +279,27 @@ fun SettingsScreen(
                                 }
                             }
                         }
-                }
+                        // 动态取色与系统主题同属外观组:展开区收起时上缘直接贴系统主题,
+                        // 展开时展开区插入中间,三段拼成一张卡(间距随展开进度收放)
+                        ListItem(
+                            headlineContent = { Text(text = stringResource(R.string.settings_dynamic_color)) },
+                            leadingContent = { SettingsIcon(R.drawable.ic_settings_dynamic_color) },
+                            trailingContent = {
+                                Switch(
+                                    checked = dynamicColor,
+                                    onCheckedChange = onDynamicColorChange,
+                                )
+                            },
+                            colors = listItemColors(),
+                            modifier = Modifier
+                                .padding(
+                                    top = with(density) {
+                                        (groupItemSpacing.toPx() * expandState.expandProgress.value).roundToInt().toDp()
+                                    },
+                                )
+                                .clip(endItemShape()),
+                        )
+                    }
             }
         }
         item {

@@ -30,13 +30,19 @@ suspend fun preWarmBook(
     val text = ReaderCache.memoryLoadText(book.id, fp) ?: withContext(Dispatchers.IO) {
         ReaderCache.loadText(context, book.id, fp)
     } ?: run {
-        val content = withContext(Dispatchers.IO) {
-            runCatching { readText(context, book.filePath) }.getOrNull()
+        val parsed = withContext(Dispatchers.IO) {
+            runCatching { readBook(context, book.filePath) }.getOrNull()
         } ?: return
-        val processed = withContext(Dispatchers.Default) { processParagraphs(content) }
-        ReaderCache.memoryStoreText(book.id, fp, processed)
-        withContext(Dispatchers.IO) { ReaderCache.saveText(context, book.id, fp, processed) }
-        processed
+        ReaderCache.memoryStoreText(book.id, fp, parsed.text)
+        withContext(Dispatchers.IO) { ReaderCache.saveText(context, book.id, fp, parsed.text) }
+        // epub/azw3 的块首(文件结构)一并存章节缓存;txt 的块首由下方检测
+        if (parsed.chapterStarts.isNotEmpty()) {
+            ReaderCache.memoryStoreChapterStarts(book.id, fp, ChapterCacheKey, parsed.chapterStarts)
+            withContext(Dispatchers.IO) {
+                ReaderCache.saveChapterStarts(context, book.id, fp, ChapterCacheKey, parsed.chapterStarts)
+            }
+        }
+        parsed.text
     }
     ReaderCache.memoryStoreText(book.id, fp, text)
 

@@ -38,6 +38,13 @@ object BookTitleParser {
     /** 尾部编号:1-2 位数字(下载重复标记),4 位年份不剥 */
     private val trailingNumRegex = Regex("[（(]\\d{1,2}[）)]$")
 
+    /** 资源站括号(z-library/1lib/z-lib/librs/libgen 等):书名里的下载来源标记,整括号剥掉 */
+    private val resourceSiteRegex = Regex("[(（][^()（）]*(?i:z-lib|z-library|1lib|librs|libgen)[^()（）]*[)）]")
+
+    /** 任意括号:书名正文基本不用(),()多为版本/来源/作者/册数噪声;2026-08-26 用户拍板「直接滤掉所有 ()」;
+     * 闭括号可选(到行尾也去)——多次迭代净化可能把括号截残破(未闭合),须能清掉 */
+    private val anyBracketRegex = Regex("[(（][^()（）]*(?:[)）]|$)")
+
     /**
      * 营销/版本裸词:书名尾部独立出现即删(「完整系列」「全集」等资源站打包词)。
      * 只匹配尾部且要求词前有书名主体(字母/数字),防误伤书名正文:
@@ -52,7 +59,7 @@ object BookTitleParser {
     private val marketingWordRegex = Regex("(${marketingWords.joinToString("|")})$")
 
     fun parse(fileName: String): String {
-        val name = fileName.substringBeforeLast(".")
+        val name = stripKnownExt(fileName)
         nameAuthorPatterns.forEach { pattern ->
             pattern.find(name)?.let { match ->
                 // 《》提取结果同样过噪声清洗(作者段/序号/版本括号/营销词表)
@@ -63,13 +70,22 @@ object BookTitleParser {
         return cleanNoise(name.replace(nameRegex, "").trim { it <= ' ' })
     }
 
+    /** 只去已知文件扩展名(.txt/.epub/.azw3/.mobi),防止把书名内部小数点(如 z-lib.sk 的 .sk)误当扩展名截掉 */
+    private fun stripKnownExt(fileName: String): String {
+        val exts = listOf("txt", "epub", "azw3", "mobi")
+        exts.firstOrNull { fileName.endsWith(".$it", true) }
+            ?.let { return fileName.dropLast(it.length + 1) }
+        return fileName
+    }
+
     /** 文件名噪声清洗:作者段 → 序号前缀 → 版本括号 → 尾部编号 → 营销裸词 */
     private fun cleanNoise(input: String): String {
         var result = input
+            .replace(anyBracketRegex, "") // 去所有 ()/（）(版本/来源/作者/册数噪声)
             .replace(authorSuffixRegex, "")
             .replace(prefixNumRegex, "")
-            .replace(versionBracketRegex, "")
             .replace(trailingNumRegex, "")
+            .replace(resourceSiteRegex, "")
             .trim()
         // 营销词循环剥(尾部匹配,删完 trim 再试下一个;剥空则回退保留)
         while (true) {

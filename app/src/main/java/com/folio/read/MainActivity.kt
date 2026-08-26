@@ -74,6 +74,7 @@ import androidx.compose.ui.text.TextMeasurer
 import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.unit.dp
 import androidx.core.view.WindowCompat
@@ -84,6 +85,7 @@ import com.folio.read.data.AiSettingsRepository
 import com.folio.read.data.Book
 import com.folio.read.data.BookRepository
 import com.folio.read.data.BookTitleCleaner
+import com.folio.read.data.BookTitleParser
 import com.folio.read.data.LibraryRepository
 import com.folio.read.data.SettingsRepository
 import com.folio.read.data.PageTurnMode
@@ -110,6 +112,7 @@ import com.folio.read.ui.licenses.LicensesScreen
 import com.folio.read.ui.navigation.AppRoutes
 import com.folio.read.ui.navigation.AppSections
 import com.folio.read.ui.reader.ReaderScreen
+import com.folio.read.ui.search.SearchScreen
 import com.folio.read.ui.reader.ReaderHPadding
 import com.folio.read.ui.reader.ReaderVPadding
 import com.folio.read.ui.reader.preWarmBook
@@ -119,6 +122,10 @@ import com.folio.read.ui.settings.ThemeItemExpandState
 import com.folio.read.ui.theme.AnimationTokens
 import com.folio.read.ui.theme.FolioSeedColor
 import com.folio.read.ui.theme.FolioTheme
+import com.folio.read.ui.theme.dynamicColorScheme
+import com.folio.read.ui.theme.dynamicSchemeCache
+import com.folio.read.ui.theme.dynamicSeedArgb
+import com.folio.read.ui.theme.warmDynamicSchemes
 import com.materialkolor.hct.Hct
 import com.materialkolor.scheme.SchemeNeutral
 import kotlinx.coroutines.Dispatchers
@@ -170,6 +177,7 @@ private fun AppRoot(
     val settingsRepo = remember { SettingsRepository(context.applicationContext) }
     var followSystemTheme by remember { mutableStateOf(true) }
     var manualDark by remember { mutableStateOf(false) }
+    var dynamicColor by remember { mutableStateOf(false) }
     var selectedSection by rememberSaveable { mutableStateOf(AppSections.Shelf) }
 
     // 单 Activity 导航:全局唯一 NavController,提升到主题 Crossfade 之外(主题过渡期间新旧副本共用同一控制器)
@@ -196,12 +204,19 @@ private fun AppRoot(
         )
     }
 
+    // 冷启动后台预热动态取色配色(壁纸提取 + 配色生成在 IO 线程),切动态取色时直接命中不卡顿
+    LaunchedEffect(Unit) {
+        withContext(Dispatchers.IO) { warmDynamicSchemes(context) }
+    }
+
     // 启动时从持久化恢复主题设置,并同步展开状态
     LaunchedEffect(Unit) {
         val restoredFollow = settingsRepo.followSystemTheme.first()
         val restoredDark = settingsRepo.manualDark.first()
+        val restoredDynamic = settingsRepo.dynamicColor.first()
         followSystemTheme = restoredFollow
         manualDark = restoredDark
+        dynamicColor = restoredDynamic
         themeExpandState.restore(expanded = !restoredFollow)
     }
 
@@ -209,6 +224,26 @@ private fun AppRoot(
     val bookRepo = remember { BookRepository(context.applicationContext) }
     // null=查询中(启动首帧不显示空态占位符,有书时避免闪几帧占位);empty=确实无书
     val books by bookRepo.books.collectAsState(initial = null)
+    // 书名净化兜底:存量书名仍是文件名(带 .txt/.epub/.azw3 后缀)的,按文件名重新解析——
+    // 历史数据/某路径下书名存成了原始文件名,新增走 addBook 的 BookTitleParser.parse 会净化,存量需补;
+    // 只净化带文件扩展名的明显文件名,不碰用户手动重命名的正常书名(2026-08-26 用户反馈「自带书名过滤未生效」)
+    var shelfNameCleaned by remember { mutableStateOf(false) }
+    LaunchedEffect(books) {
+        if (shelfNameCleaned) return@LaunchedEffect
+        val list = books ?: return@LaunchedEffect
+        shelfNameCleaned = true
+        list.filter {
+            val t = it.title
+            // 文件名特征:文件后缀 或 资源站/下载源标记(z-library/1lib 等)
+            t.endsWith(".txt", true) || t.endsWith(".epub", true) || t.endsWith(".azw3", true) ||
+                t.endsWith(".mobi", true) || t.contains("z-lib", true) || t.contains("1lib", true) ||
+                t.contains("librs", true) || t.contains("libgen", true)
+        }.forEach { b ->
+            val cleaned = BookTitleParser.parse(b.title)
+                .ifBlank { b.title.substringBeforeLast('.').ifBlank { b.title } }
+            if (cleaned != b.title) appScope.launch { bookRepo.rename(b.id, cleaned) }
+        }
+    }
 
     // 书架后台预读:书架按 lastReadAt 置顶,顶书=最可能继续读的,提前算好缓存 → 点开秒开。
     // 只填空不重算(与阅读页并发写由缓存校验兜底);尺寸按阅读页测量口径
@@ -246,6 +281,8 @@ private fun AppRoot(
     // 阅读页覆盖层:在 main 目的地内渲染,main 保持存活 → 退出不重组(修复退出掉帧);
     // 覆盖层打开时 main 仍是当前目的地,返回键由 ReaderScreen 的 BackHandler 接管
     var readerBookId by remember { mutableStateOf<Long?>(null) }
+    // 搜索页覆盖层:书架顶栏搜索按钮进入;main 保持存活,退出不重组(与阅读页覆盖层同模式)
+    var showSearch by remember { mutableStateOf(false) }
     // 退出动画期间内容需保持组合:捕获最后非空 id 供覆盖层内容使用
     var lastReaderBookId by remember { mutableStateOf<Long?>(null) }
     // 许可页/添加页覆盖层:与阅读页同模式,main 保持存活,退出不重组
@@ -434,12 +471,17 @@ private fun AppRoot(
     // 系统栏图标明暗跟随实际生效主题 + 窗口背景随主题(防深色打开页面时白闪)。
     // 单 Activity 后窗口全局唯一,这里一处搞定(原 5 个 Activity 各自重复的副本随迁移删除)
     val activity = LocalContext.current as? Activity
-    val windowScheme = remember(darkTheme) {
-        SchemeNeutral(Hct.fromInt(FolioSeedColor.toArgb()), darkTheme, contrastLevel = 0.0)
+    // 窗口背景跟随目标配色:动态取色时用系统壁纸配色(与 FolioTheme 同一 API),否则用琥珀种子色。
+    // 曾用 animateColorAsState 平滑过渡,实测主题切换时每帧重组 + 系统栏 Binder 调用造成 100ms+ 掉帧
+    val targetWindowBg = if (dynamicColor) {
+        (dynamicSchemeCache[darkTheme] ?: dynamicColorScheme(dynamicSeedArgb, darkTheme)).background
+    } else {
+        Color(remember(darkTheme) { SchemeNeutral(Hct.fromInt(FolioSeedColor.toArgb()), darkTheme, contrastLevel = 0.0) }.background)
     }
+    val windowBg = remember(darkTheme, dynamicColor) { targetWindowBg }
     SideEffect {
         activity?.window?.let { window ->
-            window.decorView.setBackgroundColor(windowScheme.background.toInt())
+            window.decorView.setBackgroundColor(windowBg.toArgb())
             WindowCompat.getInsetsController(window, window.decorView).apply {
                 isAppearanceLightStatusBars = !darkTheme
                 isAppearanceLightNavigationBars = !darkTheme
@@ -447,14 +489,15 @@ private fun AppRoot(
         }
     }
 
-    // 主题切换整体渐变:深浅任一变化时 Crossfade 交叉淡化整棵界面树,
-    // 顶栏/背景等所有元素同步过渡(新副本以新主题初始化,M3 组件不会二次动画)
+    // 主题切换整体渐变:深浅切换走 Crossfade 交叉淡化整棵界面树(新副本以新主题初始化,M3 组件不会二次动画)。
+    // 动态取色开关不触发整树过渡——配色由 FolioTheme 原地更新(树保持组合,Switch 等控件动画不被重建打断),
+    // 配色瞬间切换无中间帧,避免开关瞬间新树未就绪露底的黑闪
     Crossfade(
         targetState = darkTheme,
         animationSpec = tween(AnimationTokens.Large),
         label = "themeTransition",
     ) { theme ->
-        FolioTheme(darkTheme = theme) {
+        FolioTheme(darkTheme = theme, dynamicColor = dynamicColor) {
             NavHost(
                 navController = navController,
                 startDestination = AppRoutes.MAIN,
@@ -533,15 +576,23 @@ private fun AppRoot(
                                         }
                                     }
                                     else -> {
-                                        Box(modifier = Modifier.align(Alignment.CenterEnd)) {
-                                            var shelfMenuExpanded by remember { mutableStateOf(false) }
-                                            IconButton(onClick = { shelfMenuExpanded = true }) {
+                                        // 搜索按钮在 overflow 左边;与选中态(重命名+删除)同为 96dp Row,间距统一
+                                        Row(modifier = Modifier.align(Alignment.CenterEnd)) {
+                                            IconButton(onClick = { showSearch = true }) {
                                                 Icon(
-                                                    painter = painterResource(R.drawable.ic_more_vert),
-                                                    contentDescription = stringResource(R.string.shelf_more),
+                                                    painter = painterResource(R.drawable.ic_search),
+                                                    contentDescription = stringResource(R.string.search),
                                                 )
                                             }
-                                            DropdownMenu(
+                                            Box {
+                                                var shelfMenuExpanded by remember { mutableStateOf(false) }
+                                                IconButton(onClick = { shelfMenuExpanded = true }) {
+                                                    Icon(
+                                                        painter = painterResource(R.drawable.ic_more_vert),
+                                                        contentDescription = stringResource(R.string.shelf_more),
+                                                    )
+                                                }
+                                                DropdownMenu(
                                                 expanded = shelfMenuExpanded,
                                             onDismissRequest = { shelfMenuExpanded = false },
                                             // 容器色用 M3 默认 surfaceContainer,圆角 = M3 菜单档(small 8dp)
@@ -588,6 +639,7 @@ private fun AppRoot(
                                                 },
                                             )
                                         }
+                                            }
                                     }
                                 }
                                 }
@@ -651,6 +703,11 @@ private fun AppRoot(
                             onManualDarkChange = { newValue ->
                                 manualDark = newValue
                                 appScope.launch { settingsRepo.setManualDark(newValue) }
+                            },
+                            dynamicColor = dynamicColor,
+                            onDynamicColorChange = { newValue ->
+                                dynamicColor = newValue
+                                appScope.launch { settingsRepo.setDynamicColor(newValue) }
                             },
                             onOpenLicenses = { showLicenses = true },
                             libraryDirName = libraryDirName,
@@ -841,8 +898,29 @@ private fun AppRoot(
                     },
                 )
             }
+            // 搜索页覆盖层:书架顶栏搜索按钮进入;点结果关搜索、进阅读页。声明在阅读页之前 =>
+            // 阅读页 z 更高,搜索点结果时阅读页直接覆盖搜索页,不闪回书架(与阅读页覆盖层同模式)
+            AnimatedVisibility(
+                visible = showSearch,
+                modifier = Modifier.fillMaxSize(),
+                enter = fadeIn(tween(AnimationTokens.XL)) +
+                    slideInHorizontally(tween(AnimationTokens.XL)) { it / 16 },
+                exit = fadeOut(tween(AnimationTokens.XL)) +
+                    slideOutHorizontally(tween(AnimationTokens.XL)) { it / 16 },
+            ) {
+                SearchScreen(
+                    books = books.orEmpty(),
+                    onSelectBook = { book ->
+                        // 不关搜索页:阅读页直接覆盖,淡入透出的是搜索页而非书架(避免漏书架);
+                        // 阅读页关闭时再一并关搜索回书架(见 ReaderScreen onClose)
+                        readerBookId = book.id
+                    },
+                    onBack = { showSearch = false },
+                )
+            }
             // 阅读页覆盖层:最后渲染叠在最上;main 保持存活,退出不重组(与目录覆盖层同模式)
             // 进入=从右滑入(前进),退出=向右滑出(弹回书架方向,与 NavHost popExit 一致)
+            // 注:曾禁用动画排查「进入阅读页顶栏黑帧」,实测与覆盖层动画无关(根因=阅读页内加载淡入过渡,已修)
             if (readerBookId != null) lastReaderBookId = readerBookId
             AnimatedVisibility(
                 visible = readerBookId != null,
@@ -856,9 +934,11 @@ private fun AppRoot(
                     ReaderScreen(
                         bookId = id,
                         darkTheme = theme,
+                        dynamicColor = dynamicColor,
                         onClose = {
                             onReaderClose(id)
                             readerBookId = null
+                            // 返回回搜索页:搜索页驻留(进书是覆盖),只关阅读页,动画只动阅读一层
                         },
                     )
                 }

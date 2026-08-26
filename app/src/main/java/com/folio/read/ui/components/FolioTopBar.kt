@@ -81,6 +81,8 @@ fun FolioTopBar(
         colors = TopAppBarDefaults.topAppBarColors(
             containerColor = MaterialTheme.colorScheme.surfaceContainer,
             titleContentColor = MaterialTheme.colorScheme.onSurface,
+            // 显式设导航图标色:防默认值在深色下异常,返回键始终跟随主题前景色
+            navigationIconContentColor = MaterialTheme.colorScheme.onSurface,
         ),
     )
 }

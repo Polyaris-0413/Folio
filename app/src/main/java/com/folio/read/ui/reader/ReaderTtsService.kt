@@ -9,6 +9,7 @@ import android.content.Context
 import android.content.Intent
 import android.content.pm.ServiceInfo
 import android.content.res.Configuration
+import android.graphics.Bitmap
 import android.os.Binder
 import android.os.IBinder
 import android.util.Log
@@ -24,6 +25,11 @@ import com.folio.read.MainActivity
 import com.folio.read.R
 import com.folio.read.data.Book
 import com.folio.read.data.BookRepository
+import com.folio.read.ui.components.CoverCache
+import com.folio.read.ui.components.bookCoverGradient
+import com.folio.read.ui.components.isHorizontalTitle
+import com.folio.read.ui.components.renderCoverBitmap
+import com.folio.read.ui.components.renderHorizontalCoverBitmap
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -52,6 +58,8 @@ class ReaderTtsService : Service() {
         const val EXTRA_OFFSET = "offset"
         private const val NOTIF_ID = 1001
         private const val CHANNEL_ID = "tts_reading"
+        /** 媒体会话封面位图边长:媒体卡按正方形显示,512 兼顾清晰度与 Binder 传输体积 */
+        private const val COVER_SIZE = 512
 
         /** 从指定位置开始朗读;chapter/offset 传 -1 时按书内保存的进度读 */
         fun start(context: Context, bookId: Long, chapter: Int, offset: Int) {
@@ -90,6 +98,8 @@ class ReaderTtsService : Service() {
     private var curChapter = 0
     /** 上次停止时的朗读位置(整本正文绝对偏移);停止后媒体栏/通知栏点播放从此处继续 */
     private var lastStopPosition: Int? = null
+    /** 媒体会话/通知封面位图:书加载完成后生成一次(与书架封面同源同口径) */
+    private var coverBitmap: Bitmap? = null
     /** 当前朗读章节标题(通知文案);文本加载完、朗读开始前为空 */
     private var chapterTitle = ""
     /** 文本加载完成但 TTS 尚未就绪时的暂存切片 */
@@ -259,19 +269,26 @@ class ReaderTtsService : Service() {
                 return@launch
             }
             val fp = querySourceFingerprint(this@ReaderTtsService, loaded.filePath)
-            val content = loadText(loaded, fp)
-            if (content == null) {
+            val parsed = withContext(Dispatchers.IO) {
+                runCatching { readBook(this@ReaderTtsService, loaded.filePath) }.getOrNull()
+            }
+            if (parsed == null) {
                 Log.d(TAG, "startReading: text null")
                 loading = false
                 errorMsg.value = getString(R.string.tts_load_failed)
                 stopSelf()
                 return@launch
             }
-            val starts = loadChapterStarts(loaded, fp, content)
+            val content = parsed.text
+            // epub/azw3 用解析出的块首;txt 用正则扫描
+            val starts = parsed.chapterStarts.ifEmpty {
+                withContext(Dispatchers.Default) { ChapterDetector.detectChapterStarts(content) }
+            }
             val loadedChapters = buildChapters(content, starts)
             book = loaded
             text = content
             chapters = loadedChapters
+            coverBitmap = renderBookCover(loaded)
             loading = false
             // 未指定位置时按书内保存的进度读(后台续听场景)
             val startChapter = if (chapter >= 0) chapter else loaded.currentChapterIndex
@@ -445,9 +462,24 @@ class ReaderTtsService : Service() {
                     chapterTitle.ifBlank { getString(R.string.tts_preparing) },
                 )
                 .putString(MediaMetadataCompat.METADATA_KEY_ARTIST, book?.title ?: getString(R.string.app_name))
+                .putBitmap(MediaMetadataCompat.METADATA_KEY_ALBUM_ART, coverBitmap)
                 .build(),
         )
         session.isActive = active.value
+    }
+
+    /** 生成媒体封面位图:与书架封面同源同口径(渐变+书名),带进程级缓存;
+     * 书名空时用占位文案(与书架 CoverArtwork 一致) */
+    private fun renderBookCover(book: Book): Bitmap {
+        val title = book.title.ifEmpty { getString(R.string.book_cover_placeholder) }
+        val gradient = bookCoverGradient(book.dedupKey.ifBlank { book.title })
+        return CoverCache.get("tts|${book.id}|$title|$COVER_SIZE") {
+            if (isHorizontalTitle(title)) {
+                renderHorizontalCoverBitmap(COVER_SIZE, COVER_SIZE, title, gradient)
+            } else {
+                renderCoverBitmap(COVER_SIZE, COVER_SIZE, title, gradient)
+            }
+        }
     }
 
     private fun startForegroundCompat() {

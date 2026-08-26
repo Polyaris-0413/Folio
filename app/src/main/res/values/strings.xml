@@ -7,6 +7,7 @@
     <string name="settings_theme">主题</string>
     <string name="settings_theme_dark">深色</string>
     <string name="settings_theme_light">浅色</string>
+    <string name="settings_dynamic_color">动态取色</string>
     <string name="settings_group_ai">AI</string>
     <string name="settings_ai_key">配置 API Key</string>
     <string name="settings_ai_title_clean">书名净化</string>
@@ -76,6 +77,9 @@
     <string name="library_add_skipped">已跳过 %1$d 本重复书籍</string>
     <string name="library_select_all">全选</string>
     <string name="shelf_more">更多操作</string>
+    <string name="search">搜索</string>
+    <string name="search_hint">搜索书名</string>
+    <string name="search_empty">没有找到相关书籍</string>
     <string name="shelf_empty_title">还没有书籍</string>
     <string name="book_open_failed_title">无法打开这本书</string>
     <string name="book_open_failed_message">文件可能已被移动、删除或改名;\n若你确认文件仍在手机中;可先从书架移除这本书,再重新添加</string>

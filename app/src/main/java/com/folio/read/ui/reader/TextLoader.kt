@@ -47,6 +47,25 @@ fun querySourceFingerprint(context: Context, filePath: String): String? =
         }
     }
 
+/** 解析结果:整本纯文本 + 章节块首(txt 由后续 detectChapterStarts 算,epub/azw3 由解析器直接给) */
+data class ParsedBook(val text: String, val chapterStarts: List<Int>)
+
+/** 按扩展名分派读书:.txt 走现有管线(readText+processParagraphs);.epub/.azw3 用解析器转「整本+章节块首」 */
+fun readBook(context: Context, filePath: String): ParsedBook {
+    val ext = filePath.substringAfterLast('.', "").lowercase()
+    return when (ext) {
+        "epub" -> {
+            val (text, starts) = EpubParser.parse(context, filePath)
+            ParsedBook(text, starts)
+        }
+        "azw3", "mobi" -> {
+            val (text, starts) = MobiParser.parse(context, filePath)
+            ParsedBook(text, starts)
+        }
+        else -> ParsedBook(processParagraphs(readText(context, filePath)), emptyList())
+    }
+}
+
 /** 读取 TXT:UTF-8 严格解码,失败回落 GBK(中文 txt 常见编码) */
 fun readText(context: Context, filePath: String): String {
     val bytes = context.contentResolver.openInputStream(Uri.parse(filePath))?.use { it.readBytes() }

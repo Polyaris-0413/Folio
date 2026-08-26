@@ -44,15 +44,15 @@ class BookTitleParserTest {
 
     @Test
     fun `版本括号白名单不误伤正文括号`() {
-        // 「小雅集」含「集」字但非版本词,不剥
-        assertEquals("诗经（小雅集）", BookTitleParser.parse("诗经（小雅集）.txt"))
-        // 分类标记「综」不在白名单,不剥
-        assertEquals("（综）韩娱之国民妖精", BookTitleParser.parse("（综）韩娱之国民妖精.txt"))
+        // 2026-08-26 用户拍板「直接滤掉所有 ()」:正文括号也剥掉
+        assertEquals("诗经", BookTitleParser.parse("诗经（小雅集）.txt"))
+        assertEquals("韩娱之国民妖精", BookTitleParser.parse("（综）韩娱之国民妖精.txt"))
     }
 
     @Test
     fun `尾部编号不误伤年份`() {
-        assertEquals("源代码（1999）", BookTitleParser.parse("源代码（1999）.txt"))
+        // 全滤 () 后,年份括号也剥掉(用户拍板「直接滤掉所有 ()」)
+        assertEquals("源代码", BookTitleParser.parse("源代码（1999）.txt"))
     }
 
     @Test
@@ -73,6 +73,18 @@ class BookTitleParserTest {
 
     @Test
     fun `书名内作者括号不误伤`() {
-        assertEquals("活着（余华著）", BookTitleParser.parse("活着（余华著）.txt"))
+        // 直接滤所有 () 后,作者括号剥掉
+        assertEquals("活着", BookTitleParser.parse("活着（余华著）.txt"))
+    }
+
+    @Test
+    fun `资源站括号剥除`() {
+        assertEquals("活着", BookTitleParser.parse("活着 (余华) (z-library.sk, 1lib.sk, z-lib.sk).azw3"))
+    }
+
+    @Test
+    fun `无扩展名含内部点书名全滤括号`() {
+        // 书名已无真扩展名、含 z-lib.sk 内部点:只去已知扩展名,不误截内部点,再全滤括号
+        assertEquals("魔鬼积木", BookTitleParser.parse("魔鬼积木 (刘慈欣) (z-library.sk, 1lib.sk, z-lib.sk)"))
     }
 }

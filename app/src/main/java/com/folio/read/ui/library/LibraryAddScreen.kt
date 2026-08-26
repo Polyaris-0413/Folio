@@ -148,9 +148,15 @@ fun LibraryAddScreen(
                                     },
                                 )
                             },
-                            modifier = Modifier.clickable {
-                                selected = if (isChecked) selected - uri else selected + uri
-                            },
+                            // 分批插入的 item 出现时淡入(此前逐批闪现无动画,2026-08-26 用户反馈影响观感)
+                            modifier = Modifier
+                                .animateItem(
+                                    fadeInSpec = tween(AnimationTokens.Medium),
+                                    fadeOutSpec = tween(AnimationTokens.Medium),
+                                )
+                                .clickable {
+                                    selected = if (isChecked) selected - uri else selected + uri
+                                },
                         )
                     }
                 }

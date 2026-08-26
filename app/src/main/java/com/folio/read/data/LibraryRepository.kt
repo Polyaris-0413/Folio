@@ -38,7 +38,9 @@ class LibraryRepository(context: Context) {
         val target = dir ?: libraryDir.first() ?: return emptyList()
         return withContext(Dispatchers.IO) {
             DocumentFile.fromTreeUri(appContext, Uri.parse(target))?.listFiles()
-                ?.filter { it.isFile && it.name?.endsWith(".txt", ignoreCase = true) == true }
+                ?.filter { it.isFile && it.name?.let { n ->
+                    n.endsWith(".txt", true) || n.endsWith(".epub", true) || n.endsWith(".azw3", true)
+                } == true }
                 ?.map { it.uri to (it.name ?: "") }
                 ?: emptyList()
         }

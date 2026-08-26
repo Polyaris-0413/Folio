@@ -33,6 +33,8 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.pager.HorizontalPager
@@ -113,6 +115,7 @@ import kotlinx.coroutines.withContext
 fun ReaderScreen(
     bookId: Long,
     darkTheme: Boolean,
+    dynamicColor: Boolean,
     onClose: () -> Unit,
 ) {
     val context = LocalContext.current
@@ -127,6 +130,8 @@ fun ReaderScreen(
     var text by remember { mutableStateOf<String?>(null) }
     var sourceFp by remember { mutableStateOf<String?>(null) }
     var loadFailed by remember { mutableStateOf(false) }
+    // epub/azw3 解析出的章节块首(来自文件结构);txt 为 null(靠 ChapterDetector 正则扫描)
+    var parsedStarts by remember { mutableStateOf<List<Int>?>(null) }
     // 保存协程挂到独立作用域:离开目的地后进度写入不被取消
     val saveScope = remember { CoroutineScope(SupervisorJob() + Dispatchers.Default) }
 
@@ -159,17 +164,17 @@ fun ReaderScreen(
             ReaderCache.memoryStoreText(loaded.id, fp, cached)
             return@LaunchedEffect
         }
-        // 3) 整本读取 + 解码 + 段落缩进处理,回写两层缓存
-        val content = withContext(Dispatchers.IO) {
-            runCatching { readText(context, loaded.filePath) }.getOrNull()
+        // 3) 整本读取/解析(txt→readText+processParagraphs;epub/azw3→解析器,含章节块首),回写两层缓存
+        val parsed = withContext(Dispatchers.IO) {
+            runCatching { readBook(context, loaded.filePath) }.getOrNull()
         }
-        if (content == null) {
+        if (parsed == null) {
             loadFailed = true
         } else {
-            val processed = withContext(Dispatchers.Default) { processParagraphs(content) }
-            text = processed
-            ReaderCache.memoryStoreText(loaded.id, fp, processed)
-            if (fp != null) saveScope.launch { ReaderCache.saveText(context, loaded.id, fp, processed) }
+            parsedStarts = parsed.chapterStarts.ifEmpty { null }
+            text = parsed.text
+            ReaderCache.memoryStoreText(loaded.id, fp, parsed.text)
+            if (fp != null) saveScope.launch { ReaderCache.saveText(context, loaded.id, fp, parsed.text) }
         }
     }
 
@@ -181,27 +186,35 @@ fun ReaderScreen(
             .background(MaterialTheme.colorScheme.background),
         contentAlignment = Alignment.Center,
     ) {
-        Crossfade(
-            // 加载中/失败都空白(失败由对话框提示,不打字面提示页)
-            targetState = if (book == null || text == null || loadFailed) 0 else 1,
-            animationSpec = tween(AnimationTokens.Large),
-            label = "readerLoad",
-        ) { state ->
-            when (state) {
-                0 -> Unit // 加载期间/失败:空白背景,就绪后内容淡入
-                else -> ReaderPager(
+    // 加载期/就绪期直接切换(无淡入):曾用 Crossfade 淡入 ReaderPager,过渡期新页首帧未画出
+    // 会露背景色(深色下=黑闪,实测「占位页→完整页」期间闪黑);加载期顶栏与就绪顶栏
+    // 主干一致(返回键+书名),就绪后仅正文由门禁淡入,顶栏无切换不闪。
+    if (book == null || text == null || loadFailed) {
+        Column(modifier = Modifier.fillMaxSize()) {
+            // 加载期顶栏:返回键+书名(与就绪顶栏主干一致);书名未加载时空串占位
+            // (titleRes=0 不可传 null 走 stringResource 分支,会崩);返回=直接退出(无进度可保存)
+            FolioTopBar(
+                titleRes = 0,
+                title = book?.title.orEmpty(),
+                onBack = { onClose() },
+            )
+            Spacer(modifier = Modifier.weight(1f))
+        }
+    } else {
+        ReaderPager(
                     book = book!!,
                     text = text!!,
                     bookId = bookId,
                     sourceFp = sourceFp,
+                    parsedStarts = parsedStarts,
                     repo = repo,
                     saveScope = saveScope,
                     darkTheme = darkTheme,
+                    dynamicColor = dynamicColor,
                     pageTurnMode = pageTurnMode,
                     onClose = onClose,
                 )
             }
-        }
     }
 
     // 打开失败:说明情况/原因/解法,关掉直接返回书架(不走 handleBack,避免用空进度覆盖原阅读位置)
@@ -270,9 +283,11 @@ private fun ReaderPager(
     text: String,
     bookId: Long,
     sourceFp: String?,
+    parsedStarts: List<Int>?,
     repo: BookRepository,
     saveScope: CoroutineScope,
     darkTheme: Boolean,
+    dynamicColor: Boolean,
     pageTurnMode: PageTurnMode,
     onClose: () -> Unit,
 ) {
@@ -295,7 +310,10 @@ private fun ReaderPager(
         if (cached != null) {
             chapterStarts = cached
         } else {
-            val detected = withContext(Dispatchers.Default) { ChapterDetector.detectChapterStarts(text) }
+            // epub/azw3 用解析出的块首;txt 用正则扫描
+            val detected = withContext(Dispatchers.Default) {
+                parsedStarts ?: ChapterDetector.detectChapterStarts(text)
+            }
             chapterStarts = detected
             if (fp != null) {
                 ReaderCache.memoryStoreChapterStarts(bookId, fp, ChapterCacheKey, detected)
@@ -840,7 +858,7 @@ private fun ReaderPager(
                                 // 占位哨兵页(相邻章加载中):空白,很快被真实内容填上
                                 if (range != null) {
                                     Text(
-                                        text = withHighlight(curAnnotated, range, ttsHighlight, darkTheme),
+                                        text = withHighlight(curAnnotated, range, ttsHighlight, darkTheme, dynamicColor),
                                         style = readerStyle,
                                         color = MaterialTheme.colorScheme.onSurface,
                                     )
@@ -935,6 +953,7 @@ private fun withHighlight(
     range: Pair<Int, Int>,
     highlight: Pair<Int, Int>?,
     darkTheme: Boolean,
+    dynamicColor: Boolean,
 ): AnnotatedString {
     if (highlight == null) return annotated.subSequence(range.first, range.second)
     val pageStart = range.first
@@ -942,11 +961,15 @@ private fun withHighlight(
     val hs = highlight.first.coerceIn(pageStart, pageEnd)
     val he = highlight.second.coerceIn(pageStart, pageEnd)
     if (hs >= he) return annotated.subSequence(pageStart, pageEnd)
-    // 朗读高亮色:HCT 用种子色的互补色相(hue+180,黄→蓝紫),与暖黄正文形成强对比,
-    // chroma 中等、两主题 tone 适中,明显且不刺眼
-    val hlColor = remember(darkTheme) {
-        val seed = Hct.fromInt(FolioSeedColor.toArgb())
-        Color(Hct.from((seed.hue + 180.0) % 360.0, 50.0, if (darkTheme) 50.0 else 55.0).toInt())
+    // 朗读高亮色:动态取色时用当前主题 primary;否则 HCT 用种子色互补色相(hue+180,黄→蓝紫),
+    // 与暖黄正文形成强对比,chroma 中等、两主题 tone 适中,明显且不刺眼
+    val hlColor = if (dynamicColor) {
+        MaterialTheme.colorScheme.primary
+    } else {
+        remember(darkTheme) {
+            val seed = Hct.fromInt(FolioSeedColor.toArgb())
+            Color(Hct.from((seed.hue + 180.0) % 360.0, 50.0, if (darkTheme) 50.0 else 55.0).toInt())
+        }
     }
     return buildAnnotatedString {
         append(annotated.subSequence(pageStart, pageEnd))
