@@ -17,13 +17,15 @@ import java.nio.charset.CodingErrorAction
 /** 章节:处理后正文的字符区间 + 标题 */
 data class Chapter(val start: Int, val end: Int, val title: String)
 
-/** 由章节块首推出章节列表;无块首时全书视为一章(无标题的文本) */
-fun buildChapters(text: String, chapterStarts: List<Int>): List<Chapter> {
-    if (chapterStarts.isEmpty()) return listOf(Chapter(0, text.length, ""))
+/** 由章节块首推出章节列表;无块首时全书视为一章(无标题的文本)。
+ * titles 提供时用它作章节标题(标题独立,epub/azw3 用);缺省时取块首行(标题内嵌正文,txt 用)。 */
+fun buildChapters(text: String, chapterStarts: List<Int>, titles: List<String> = emptyList()): List<Chapter> {
+    if (chapterStarts.isEmpty()) return listOf(Chapter(0, text.length, titles.firstOrNull().orEmpty()))
     return chapterStarts.mapIndexed { i, s ->
         val e = if (i + 1 < chapterStarts.size) chapterStarts[i + 1] else text.length
         val lineEnd = text.indexOf('\n', s).let { if (it == -1) text.length else it }
-        Chapter(s, e, text.substring(s, lineEnd).trim())
+        val title = titles.getOrNull(i)?.takeIf { it.isNotBlank() } ?: text.substring(s, lineEnd).trim()
+        Chapter(s, e, title)
     }
 }
 
@@ -47,20 +49,20 @@ fun querySourceFingerprint(context: Context, filePath: String): String? =
         }
     }
 
-/** 解析结果:整本纯文本 + 章节块首(txt 由后续 detectChapterStarts 算,epub/azw3 由解析器直接给) */
-data class ParsedBook(val text: String, val chapterStarts: List<Int>)
+/** 解析结果:整本纯文本 + 章节块首 + 可选独立章节标题(epub/azw3 用;txt 缺省=标题在 text 首行) */
+data class ParsedBook(val text: String, val chapterStarts: List<Int>, val titles: List<String> = emptyList())
 
 /** 按扩展名分派读书:.txt 走现有管线(readText+processParagraphs);.epub/.azw3 用解析器转「整本+章节块首」 */
 fun readBook(context: Context, filePath: String): ParsedBook {
     val ext = filePath.substringAfterLast('.', "").lowercase()
     return when (ext) {
         "epub" -> {
-            val (text, starts) = EpubParser.parse(context, filePath)
-            ParsedBook(text, starts)
+            val (text, starts, titles) = EpubParser.parse(context, filePath)
+            ParsedBook(text, starts, titles)
         }
         "azw3", "mobi" -> {
-            val (text, starts) = MobiParser.parse(context, filePath)
-            ParsedBook(text, starts)
+            val (text, starts, titles) = MobiParser.parse(context, filePath)
+            ParsedBook(text, starts, titles)
         }
         else -> ParsedBook(processParagraphs(readText(context, filePath)), emptyList())
     }

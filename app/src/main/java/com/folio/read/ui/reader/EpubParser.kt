@@ -19,7 +19,7 @@ object EpubParser {
 
     private data class NcxItem(val title: String, val href: String)
 
-    fun parse(context: Context, filePath: String): Pair<String, List<Int>> {
+    fun parse(context: Context, filePath: String): Triple<String, List<Int>, List<String>> {
         val temp = File.createTempFile("folio_epub_", ".epub", context.cacheDir)
         try {
             context.contentResolver.openInputStream(Uri.parse(filePath)).use { ins ->
@@ -33,8 +33,9 @@ object EpubParser {
                 val spineHrefs = parseSpine(opfDoc, manifest, opfPath)
                 val sb = StringBuilder()
                 val starts = mutableListOf<Int>()
+                val titles = mutableListOf<String>()
 
-                // 3) 优先用 NCX 目录生成章节(标题=navLabel 真实章标题)
+                // 3) 优先用 NCX 目录生成章节(标题=navLabel 真实章标题),标题独立、正文不含标题行
                 val ncxItems = findNcx(zip)?.let { readNcx(zip, it) } ?: emptyList()
                 if (ncxItems.isNotEmpty()) {
                     var no = 0
@@ -46,12 +47,13 @@ object EpubParser {
                         if (text.isEmpty()) return@forEach
                         starts.add(sb.length)
                         val title = item.title.ifBlank { "第${++no}章" }
+                        titles.add(title)
                         sb.append(title).append('\n').append(text).append('\n')
                     }
-                    return sb.toString() to starts
+                    return Triple(sb.toString(), starts, titles)
                 }
 
-                // spine 退:每资源一章(标题取 xhtml <title>,否则「第N章」)
+                // spine 退:每资源一章(标题取 xhtml <title>,否则「第N章」),标题独立
                 var chapterNo = 0
                 for (href in spineHrefs) {
                     val entry = zip.getEntry(href) ?: continue
@@ -60,9 +62,10 @@ object EpubParser {
                     val text = HtmlToText.convert(html).trim()
                     if (text.isEmpty()) continue
                     starts.add(sb.length)
+                    titles.add(title)
                     sb.append(title).append('\n').append(text).append('\n')
                 }
-                return sb.toString() to starts
+                return Triple(sb.toString(), starts, titles)
             }
         } finally {
             temp.delete()

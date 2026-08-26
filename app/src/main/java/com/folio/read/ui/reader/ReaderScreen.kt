@@ -132,6 +132,8 @@ fun ReaderScreen(
     var loadFailed by remember { mutableStateOf(false) }
     // epub/azw3 解析出的章节块首(来自文件结构);txt 为 null(靠 ChapterDetector 正则扫描)
     var parsedStarts by remember { mutableStateOf<List<Int>?>(null) }
+    // epub/azw3 的独立章节标题(标题不在正文里);txt 为 null(标题=正文首行)
+    var parsedTitles by remember { mutableStateOf<List<String>?>(null) }
     // 保存协程挂到独立作用域:离开目的地后进度写入不被取消
     val saveScope = remember { CoroutineScope(SupervisorJob() + Dispatchers.Default) }
 
@@ -150,6 +152,21 @@ fun ReaderScreen(
             runCatching { querySourceFingerprint(context, loaded.filePath) }.getOrNull()
         }
         sourceFp = fp
+        // epub/azw3 结构化书:每次直接解析(readBook 返回独立章节块首+titles)——不走 text 缓存,
+        // 缓存命中时无法恢复独立 titles,目录会退化成「正文首行」全文
+        val structured = loaded.filePath.endsWith(".epub", true) ||
+            loaded.filePath.endsWith(".azw3", true) || loaded.filePath.endsWith(".mobi", true)
+        if (structured) {
+            val parsed = withContext(Dispatchers.IO) {
+                runCatching { readBook(context, loaded.filePath) }.getOrNull()
+            }
+            if (parsed == null) loadFailed = true else {
+                parsedStarts = parsed.chapterStarts.ifEmpty { null }
+                parsedTitles = parsed.titles.ifEmpty { null }
+                text = parsed.text
+            }
+            return@LaunchedEffect
+        }
         // 1) 进程内存缓存:同一进程内重开零 IO,秒出
         ReaderCache.memoryLoadText(loaded.id, fp)?.let {
             text = it
@@ -172,6 +189,7 @@ fun ReaderScreen(
             loadFailed = true
         } else {
             parsedStarts = parsed.chapterStarts.ifEmpty { null }
+            parsedTitles = parsed.titles.ifEmpty { null }
             text = parsed.text
             ReaderCache.memoryStoreText(loaded.id, fp, parsed.text)
             if (fp != null) saveScope.launch { ReaderCache.saveText(context, loaded.id, fp, parsed.text) }
@@ -207,6 +225,7 @@ fun ReaderScreen(
                     bookId = bookId,
                     sourceFp = sourceFp,
                     parsedStarts = parsedStarts,
+                    parsedTitles = parsedTitles,
                     repo = repo,
                     saveScope = saveScope,
                     darkTheme = darkTheme,
@@ -284,6 +303,7 @@ private fun ReaderPager(
     bookId: Long,
     sourceFp: String?,
     parsedStarts: List<Int>?,
+    parsedTitles: List<String>?,
     repo: BookRepository,
     saveScope: CoroutineScope,
     darkTheme: Boolean,
@@ -324,7 +344,7 @@ private fun ReaderPager(
         }
     }
     // 章节模型(内存切片):块 i 到块 i+1 之间为第 i 章
-    val chapters = remember(chapterStarts, text) { buildChapters(text, chapterStarts ?: emptyList()) }
+    val chapters = remember(chapterStarts, text) { buildChapters(text, chapterStarts ?: emptyList(), parsedTitles ?: emptyList()) }
     // debug:书末章节规模(「跳书末章卡加载」排查:章节 end 延伸到全文末尾时单章可能巨大)
     LaunchedEffect(chapters) {
         val tail = chapters.takeLast(5).map { "${it.title}[${it.end - it.start}]" }
