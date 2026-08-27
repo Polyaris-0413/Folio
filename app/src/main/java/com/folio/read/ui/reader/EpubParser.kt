@@ -1,10 +1,10 @@
 package com.folio.read.ui.reader
 
 /*
- * .epub 解析(自写,不引 epublib/Jsoup):ZipFile 读 META-INF/container.xml → OPF(manifest+spine)。
+ * .epub 解析:ZipFile 读 META-INF/container.xml → OPF(manifest+spine),OPF/NCX 用 DOM 解析(不引 epublib)。
  * 章节生成的标题**优先用 NCX 目录(toc.ncx 的 <navLabel><text>)**——epub 每个分章 xhtml 的 <title>
  * 常是整本书名(如「罗杰疑案」),拿它当章标题会每章同名(用户反馈);legado 也是用 NCX 标题。
- * NCX 不可用时退 spine(标题取 xhtml <title> 否则「第N章」)。正文=对应资源 xhtml→HtmlToText 纯文本。
+ * NCX 不可用时退 spine(标题取 xhtml <title> 否则「第N章」)。正文=对应资源 xhtml→Jsoup 解析→HtmlToText 纯文本。
  */
 
 import android.content.Context
@@ -19,7 +19,7 @@ object EpubParser {
 
     private data class NcxItem(val title: String, val href: String)
 
-    fun parse(context: Context, filePath: String): Triple<String, List<Int>, List<String>> {
+    fun parse(context: Context, filePath: String): List<Chapter> {
         val temp = File.createTempFile("folio_epub_", ".epub", context.cacheDir)
         try {
             context.contentResolver.openInputStream(Uri.parse(filePath)).use { ins ->
@@ -31,11 +31,9 @@ object EpubParser {
                 val opfDoc = readXml(zip, opfPath)
                 val manifest = parseManifest(opfDoc)
                 val spineHrefs = parseSpine(opfDoc, manifest, opfPath)
-                val sb = StringBuilder()
-                val starts = mutableListOf<Int>()
-                val titles = mutableListOf<String>()
+                val chapters = mutableListOf<Chapter>()
 
-                // 3) 优先用 NCX 目录生成章节(标题=navLabel 真实章标题),标题独立、正文不含标题行
+                // 优先用 NCX 目录生成章节(标题=navLabel 真实章标题),标题独立、正文剥离重复标题段
                 val ncxItems = findNcx(zip)?.let { readNcx(zip, it) } ?: emptyList()
                 if (ncxItems.isNotEmpty()) {
                     var no = 0
@@ -45,15 +43,13 @@ object EpubParser {
                             zip.getInputStream(entry).reader(Charsets.UTF_8).readText(),
                         ).trim()
                         if (text.isEmpty()) return@forEach
-                        starts.add(sb.length)
                         val title = item.title.ifBlank { "第${++no}章" }
-                        titles.add(title)
-                        sb.append(title).append('\n').append(text).append('\n')
+                        chapters.add(Chapter(title, indentContent(stripLeadingTitle(text, title))))
                     }
-                    return Triple(sb.toString(), starts, titles)
+                    return chapters
                 }
 
-                // spine 退:每资源一章(标题取 xhtml <title>,否则「第N章」),标题独立
+                // spine 退:每资源一章(标题取 xhtml <title>,否则「第N章」)
                 var chapterNo = 0
                 for (href in spineHrefs) {
                     val entry = zip.getEntry(href) ?: continue
@@ -61,11 +57,9 @@ object EpubParser {
                     val title = extractTitle(html) ?: "第${++chapterNo}章"
                     val text = HtmlToText.convert(html).trim()
                     if (text.isEmpty()) continue
-                    starts.add(sb.length)
-                    titles.add(title)
-                    sb.append(title).append('\n').append(text).append('\n')
+                    chapters.add(Chapter(title, indentContent(stripLeadingTitle(text, title))))
                 }
-                return Triple(sb.toString(), starts, titles)
+                return chapters
             }
         } finally {
             temp.delete()

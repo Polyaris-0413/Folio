@@ -9,7 +9,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
 /**
- * 书架后台预读:把「最近读的书」的正文/章节/当前章分页算进 ReaderCache,
+ * 书架后台预读:把「最近读的书」的章节列表缓存进内存、当前章页表算进 ReaderCache,
  * 用户点开时缓存命中 → 冷开也秒开(对齐 legado 秒开体感,但不动阅读器整本分页架构)。
  * 预读是尽力而为:全部后台线程,失败静默;缓存已存在则跳过(只填空,不与阅读页并发写冲突)。
  * measurerFactory 由组合侧提供(在组合作用域内创建 TextMeasurer,拿到内部字体解析器);
@@ -23,50 +23,20 @@ suspend fun preWarmBook(
     textWidth: Int,
     textHeight: Int,
 ) {
-    // 1) 正文:内存 → 磁盘 → 整本读,回写两层缓存
+    // 1) 章节列表:内存缓存 → 整本读取/解析,回写内存缓存
     val fp = withContext(Dispatchers.IO) {
         runCatching { querySourceFingerprint(context, book.filePath) }.getOrNull()
     } ?: return
-    val text = ReaderCache.memoryLoadText(book.id, fp) ?: withContext(Dispatchers.IO) {
-        ReaderCache.loadText(context, book.id, fp)
-    } ?: run {
-        val parsed = withContext(Dispatchers.IO) {
-            runCatching { readBook(context, book.filePath) }.getOrNull()
-        } ?: return
-        ReaderCache.memoryStoreText(book.id, fp, parsed.text)
-        withContext(Dispatchers.IO) { ReaderCache.saveText(context, book.id, fp, parsed.text) }
-        // epub/azw3 的块首(文件结构)一并存章节缓存;txt 的块首由下方检测
-        if (parsed.chapterStarts.isNotEmpty()) {
-            ReaderCache.memoryStoreChapterStarts(book.id, fp, ChapterCacheKey, parsed.chapterStarts)
-            withContext(Dispatchers.IO) {
-                ReaderCache.saveChapterStarts(context, book.id, fp, ChapterCacheKey, parsed.chapterStarts)
-            }
-        }
-        parsed.text
-    }
-    ReaderCache.memoryStoreText(book.id, fp, text)
-
-    // 2) 章节块首:内存 → 磁盘 → 检测,回写
-    val chapterStarts = ReaderCache.memoryLoadChapterStarts(book.id, fp, ChapterCacheKey)
-        ?: withContext(Dispatchers.IO) {
-            ReaderCache.loadChapterStarts(context, book.id, fp, ChapterCacheKey)
-        }
-        ?: run {
-            val detected = withContext(Dispatchers.Default) { ChapterDetector.detectChapterStarts(text) }
-            ReaderCache.memoryStoreChapterStarts(book.id, fp, ChapterCacheKey, detected)
-            withContext(Dispatchers.IO) {
-                ReaderCache.saveChapterStarts(context, book.id, fp, ChapterCacheKey, detected)
-            }
-            detected
-        }
-    ReaderCache.memoryStoreChapterStarts(book.id, fp, ChapterCacheKey, chapterStarts)
-
-    // 3) 当前章分页:与阅读页同款测量,只填空(已有缓存不重算,避免与阅读页并发写)
-    val chapters = buildChapters(text, chapterStarts)
+    val chapters = ReaderCache.memoryLoadChapters(book.id, fp) ?: withContext(Dispatchers.IO) {
+        runCatching { readBook(context, book.filePath) }.getOrNull()
+    } ?: return
+    ReaderCache.memoryStoreChapters(book.id, fp, chapters)
     if (chapters.isEmpty()) return
+
+    // 2) 当前章分页:与阅读页同款测量,只填空(已有缓存不重算,避免与阅读页并发写)
     val idx = book.currentChapterIndex.coerceIn(0, chapters.lastIndex)
     if (ReaderCache.loadPages(context, book.id, fp, idx, textWidth, textHeight, ReaderStyleKey) != null) return
-    val annotated = withContext(Dispatchers.Default) { buildAnnotatedText(text, chapterStarts) }
+    val annotated = withContext(Dispatchers.Default) { buildChapterAnnotated(chapters[idx]) }
     val linesPerPage = with(density) {
         (textHeight / ReaderStyle.lineHeight.toPx()).toInt().coerceAtLeast(1)
     }
@@ -75,7 +45,7 @@ suspend fun preWarmBook(
     )
     withContext(Dispatchers.Default) {
         val pages = chapterPagesOf(
-            annotated, chapters[idx], measurerFactory(), style, textWidth, textHeight, linesPerPage,
+            annotated, annotated.length, measurerFactory(), style, textWidth, textHeight, linesPerPage,
         )
         ReaderCache.savePages(context, book.id, fp, idx, textWidth, textHeight, ReaderStyleKey, pages)
     }

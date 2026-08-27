@@ -24,14 +24,12 @@ object MobiParser {
         val isSkip: Boolean,
     )
 
-    fun parse(context: Context, filePath: String): Triple<String, List<Int>, List<String>> {
+    fun parse(context: Context, filePath: String): List<Chapter> {
         context.contentResolver.openFileDescriptor(Uri.parse(filePath), "r").use { pfd ->
             val book = pfd?.let { MobiReader().readMobi(it) }
                 ?: throw IllegalStateException("无法读取 mobi 文件")
             val chapters = buildChapters(book)
-            val sb = StringBuilder()
-            val starts = mutableListOf<Int>()
-            val titles = mutableListOf<String>()
+            val result = mutableListOf<Chapter>()
             var no = 0
             for (ch in chapters) {
                 if (ch.isSkip) continue
@@ -41,16 +39,11 @@ object MobiParser {
                 if (text.isEmpty()) continue
                 val title = ch.title.ifBlank { "第${++no}章" }
                 // 章节正文 html 常自带标题段(如「活着」),剥掉与章节标题相同的首段,正文从内容开始(legado 风格)
-                val body = if (text.startsWith(title)) {
-                    text.removePrefix(title).trimStart().removePrefix("　　").trimStart()
-                } else text
+                val body = indentContent(stripLeadingTitle(text, title))
                 if (body.isEmpty()) continue
-                starts.add(sb.length)
-                titles.add(title)
-                // 每章保留一行标题(阅读页显示),正文已剥离重复标题段,标题与正文不重复
-                sb.append(title).append('\n').append(body).append('\n')
+                result.add(Chapter(title, body))
             }
-            return Triple(sb.toString(), starts, titles)
+            return result
         }
     }
 

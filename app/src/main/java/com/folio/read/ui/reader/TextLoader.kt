@@ -14,20 +14,8 @@ import java.nio.ByteBuffer
 import java.nio.charset.Charset
 import java.nio.charset.CodingErrorAction
 
-/** 章节:处理后正文的字符区间 + 标题 */
-data class Chapter(val start: Int, val end: Int, val title: String)
-
-/** 由章节块首推出章节列表;无块首时全书视为一章(无标题的文本)。
- * titles 提供时用它作章节标题(标题独立,epub/azw3 用);缺省时取块首行(标题内嵌正文,txt 用)。 */
-fun buildChapters(text: String, chapterStarts: List<Int>, titles: List<String> = emptyList()): List<Chapter> {
-    if (chapterStarts.isEmpty()) return listOf(Chapter(0, text.length, titles.firstOrNull().orEmpty()))
-    return chapterStarts.mapIndexed { i, s ->
-        val e = if (i + 1 < chapterStarts.size) chapterStarts[i + 1] else text.length
-        val lineEnd = text.indexOf('\n', s).let { if (it == -1) text.length else it }
-        val title = titles.getOrNull(i)?.takeIf { it.isNotBlank() } ?: text.substring(s, lineEnd).trim()
-        Chapter(s, e, title)
-    }
-}
+/** 章节:每章独立正文,标题与正文分离(标题不进 content,渲染时独立显示) */
+data class Chapter(val title: String, val content: String)
 
 /** 源文件指纹:SAF 可查询的大小与最后修改时间,文件变更后缓存自动失效 */
 fun querySourceFingerprint(context: Context, filePath: String): String? =
@@ -49,22 +37,13 @@ fun querySourceFingerprint(context: Context, filePath: String): String? =
         }
     }
 
-/** 解析结果:整本纯文本 + 章节块首 + 可选独立章节标题(epub/azw3 用;txt 缺省=标题在 text 首行) */
-data class ParsedBook(val text: String, val chapterStarts: List<Int>, val titles: List<String> = emptyList())
-
-/** 按扩展名分派读书:.txt 走现有管线(readText+processParagraphs);.epub/.azw3 用解析器转「整本+章节块首」 */
-fun readBook(context: Context, filePath: String): ParsedBook {
+/** 按扩展名分派读书:.txt 走 readText+processParagraphs+按标题块切章;.epub/.azw3 用解析器逐章产 Chapter */
+fun readBook(context: Context, filePath: String): List<Chapter> {
     val ext = filePath.substringAfterLast('.', "").lowercase()
     return when (ext) {
-        "epub" -> {
-            val (text, starts, titles) = EpubParser.parse(context, filePath)
-            ParsedBook(text, starts, titles)
-        }
-        "azw3", "mobi" -> {
-            val (text, starts, titles) = MobiParser.parse(context, filePath)
-            ParsedBook(text, starts, titles)
-        }
-        else -> ParsedBook(processParagraphs(readText(context, filePath)), emptyList())
+        "epub" -> EpubParser.parse(context, filePath)
+        "azw3", "mobi" -> MobiParser.parse(context, filePath)
+        else -> buildTxtChapters(readText(context, filePath))
     }
 }
 
@@ -101,6 +80,71 @@ fun processParagraphs(text: String): String {
         if (ChapterDetector.isTitleLine(line)) line else "　　$line"
     }
     return if (firstTitleIndex > 0) "前言\n$body" else body
+}
+
+/** TXT 章节切分:整本处理(缩进+前言)后,按章节标题块切成「每章独立 content」。
+ * 标题 = 块首行(独立,不进 content);正文 = 块内剩余行(已缩进)。
+ * 无任何章节标题的书:整本作一章、标题置空(避免把首段当标题加粗)。 */
+fun buildTxtChapters(rawText: String): List<Chapter> {
+    val processed = processParagraphs(rawText)
+    val starts = ChapterDetector.detectChapterStarts(processed)
+    // ChapterDetector 无标题时回退 [0];此时整本一章且首行并非标题 → 标题置空
+    val firstLineEnd = processed.indexOf('\n').let { if (it == -1) processed.length else it }
+    val singleNoTitleBlock = starts.size == 1 && starts[0] == 0 &&
+        !ChapterDetector.isTitleLine(processed.substring(0, firstLineEnd).trim())
+    if (singleNoTitleBlock) return listOf(Chapter("", processed))
+    return starts.mapIndexed { i, s ->
+        val e = if (i + 1 < starts.size) starts[i + 1] else processed.length
+        val lineEnd = processed.indexOf('\n', s).let { if (it == -1 || it > e) e else it }
+        val title = processed.substring(s, lineEnd).trim()
+        val content = processed.substring(lineEnd + 1, e).trimStart('\n', '\r')
+        Chapter(title, content)
+    }
+}
+
+/** 段落缩进(epub/azw3 html→纯文本后):每段前加两个全角空格,空行丢弃。
+ * 照搬 Legado ContentProcessor.getContent(读者路径 includeTitle=false)末段对每段前置 paragraphIndent。
+ * HtmlToText 已对齐 Legado HtmlFormatter(块级标签→换行、\s*\n+\s* 折叠),有块级标签的书此处按 \n 分段。
+ * 与 processParagraphs 不同:不做「前言」插入(epub/azw3 章节来自 NCX,无前言语义),
+ * 也不按章节标题行判断是否缩进(epub/azw3 正文行不作标题识别,所有段落统一缩进)。
+ * 无 <p>/<div>/<br> 块级标签的 epub(如罗杰疑案)HtmlToText 产出一整行、段落间以句末标点后空格分隔;
+ * 此种零换行时把「句末标点+空格」转成换行作段落分隔——中文正文句末后本不空格,空格即段落区分;
+ * 引号/括号内句子末尾后紧跟引号,空格前不是句末标点,不会误切对话。 */
+internal fun indentContent(text: String): String {
+    var t = text
+    if (!t.contains('\n')) {
+        t = t.replace(Regex("""(?<=[。？！!?])[ \t]+"""), "\n")
+    }
+    return t.split('\n')
+        .map { it.trim { c -> c.code <= 0x20 || c == '　' } }
+        .filter { it.isNotEmpty() }
+        .joinToString("\n") { "　　$it" }
+}
+
+/**
+ * 剥离正文开头与章节标题相同的标题段(epub/mobi 正文 html 常自带标题段,避免正文重复标题)。
+ * 标题与正文可能同行(如「活着　我比现在年轻...」),也可能被正文拆成多行——章节标题
+ * 「第一章 谢泼德医生在早餐桌上」在正文里是「第一章」「谢泼德医生在早餐桌上」两行(中间换行),
+ * 故不能用 startsWith(标题空格≠正文换行)。对齐 Legado 去除重复标题:标题内空白用 [\s\u3000]+ 匹配
+ * (覆盖空格/换行/全角缩进),标题前后允许空白/全角;标题即整段内容(如「卷首」元数据段)时正文判空返回 ""。
+ * 仅剥一次,不误伤后续正文。
+ */
+internal fun stripLeadingTitle(text: String, title: String): String {
+    val t = title.trim()
+    if (t.isEmpty()) return text
+    val re = buildString {
+        append("^[\\s\\u3000]*")
+        for (ch in t) {
+            when {
+                ch.isWhitespace() -> append("[\\s\\u3000]+")
+                ch in """\.^$|?*+()[]{}""" -> append('\\').append(ch)
+                else -> append(ch)
+            }
+        }
+        append("[\\s\\u3000]*")
+    }
+    val m = Regex(re).find(text) ?: return text
+    return text.removeRange(0, m.range.last + 1).trimStart()
 }
 
 /**

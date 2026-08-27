@@ -87,4 +87,27 @@ class BookTitleParserTest {
         // 书名已无真扩展名、含 z-lib.sk 内部点:只去已知扩展名,不误截内部点,再全滤括号
         assertEquals("魔鬼积木", BookTitleParser.parse("魔鬼积木 (刘慈欣) (z-library.sk, 1lib.sk, z-lib.sk)"))
     }
+
+    @Test
+    fun `方括号_全滤_半角中文全角`() {
+        assertEquals("三体", BookTitleParser.parse("三体【全集】.txt"))
+        assertEquals("作品集", BookTitleParser.parse("作品集[精校版].txt"))
+        assertEquals("书名", BookTitleParser.parse("书名\uFF3B校对版\uFF3D.txt"))
+    }
+
+    @Test
+    fun `方括号半角未闭合_剥到行尾`() {
+        assertEquals("书名", BookTitleParser.parse("书名[精校.txt"))
+    }
+
+    @Test
+    fun `方括号在书名前_剥掉括号留书名`() {
+        assertEquals("三体", BookTitleParser.parse("[精校版]三体.txt"))
+        assertEquals("活着", BookTitleParser.parse("【全本】活着.txt"))
+    }
+
+    @Test
+    fun `圆括号与方括号混用_全部剥掉`() {
+        assertEquals("活着", BookTitleParser.parse("活着（余华著）[精校].txt"))
+    }
 }

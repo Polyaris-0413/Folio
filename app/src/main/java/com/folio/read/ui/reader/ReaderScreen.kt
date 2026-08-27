@@ -107,8 +107,9 @@ import kotlinx.coroutines.withContext
 
 /**
  * 阅读页目的地(单 Activity):翻页式基础浏览 + 进度记忆。
- * 正文按 TextMeasurer 精确分页(HorizontalPager 翻页),进度按「章节号 + 章内字符偏移」
- * 存入 Book(currentChapterIndex/chapterPosition),重新进入时恢复到对应页。
+ * 正文按「每章独立 content」组织:每章自持一个章内分页表(本地偏移),当前章 ± 邻章预加载,
+ * 翻到章末/章首经邻章哨兵页无缝切章。进度按「章节号 + 章内偏移」存入
+ * Book(currentChapterIndex/chapterPosition),重新进入时恢复到对应页。
  * 主题/窗口由宿主统一管理;onClose 语义=离开这本书(宿主负责 markRead 置顶 + 弹回书架)。
  */
 @Composable
@@ -127,17 +128,13 @@ fun ReaderScreen(
     )
     val pageTurnMode = pageTurnSettings.mode
     var book by remember { mutableStateOf<Book?>(null) }
-    var text by remember { mutableStateOf<String?>(null) }
+    var chapters by remember { mutableStateOf<List<Chapter>?>(null) }
     var sourceFp by remember { mutableStateOf<String?>(null) }
     var loadFailed by remember { mutableStateOf(false) }
-    // epub/azw3 解析出的章节块首(来自文件结构);txt 为 null(靠 ChapterDetector 正则扫描)
-    var parsedStarts by remember { mutableStateOf<List<Int>?>(null) }
-    // epub/azw3 的独立章节标题(标题不在正文里);txt 为 null(标题=正文首行)
-    var parsedTitles by remember { mutableStateOf<List<String>?>(null) }
     // 保存协程挂到独立作用域:离开目的地后进度写入不被取消
     val saveScope = remember { CoroutineScope(SupervisorJob() + Dispatchers.Default) }
 
-    // 加载书籍与正文:进程内存缓存 → 磁盘缓存(IO 线程)→ 整本读取(IO 线程)
+    // 加载书籍与章节:进程内存缓存 → 整本读取/解析(readBook 返回每章独立 content)
     LaunchedEffect(bookId) {
         val loaded = repo.getBook(bookId)
         if (loaded == null) {
@@ -152,47 +149,28 @@ fun ReaderScreen(
             runCatching { querySourceFingerprint(context, loaded.filePath) }.getOrNull()
         }
         sourceFp = fp
-        // epub/azw3 结构化书:每次直接解析(readBook 返回独立章节块首+titles)——不走 text 缓存,
-        // 缓存命中时无法恢复独立 titles,目录会退化成「正文首行」全文
-        val structured = loaded.filePath.endsWith(".epub", true) ||
-            loaded.filePath.endsWith(".azw3", true) || loaded.filePath.endsWith(".mobi", true)
-        if (structured) {
-            val parsed = withContext(Dispatchers.IO) {
-                runCatching { readBook(context, loaded.filePath) }.getOrNull()
-            }
-            if (parsed == null) loadFailed = true else {
-                parsedStarts = parsed.chapterStarts.ifEmpty { null }
-                parsedTitles = parsed.titles.ifEmpty { null }
-                text = parsed.text
-            }
+        // 1) 进程内存章节缓存:同一进程内重开零 IO/零解析,秒出
+        ReaderCache.memoryLoadChapters(loaded.id, fp)?.let {
+            chapters = it
             return@LaunchedEffect
         }
-        // 1) 进程内存缓存:同一进程内重开零 IO,秒出
-        ReaderCache.memoryLoadText(loaded.id, fp)?.let {
-            text = it
-            return@LaunchedEffect
-        }
-        // 2) 磁盘缓存:仅跨进程(杀进程后)回退,读一次几 MB
-        val cached = withContext(Dispatchers.IO) {
-            fp?.let { ReaderCache.loadText(context, loaded.id, it) }
-        }
-        if (cached != null) {
-            text = cached
-            ReaderCache.memoryStoreText(loaded.id, fp, cached)
-            return@LaunchedEffect
-        }
-        // 3) 整本读取/解析(txt→readText+processParagraphs;epub/azw3→解析器,含章节块首),回写两层缓存
+        // 2) 整本读取/解析(epub/azw3→解析器;txt→readText+processParagraphs+按标题块切章),回写内存缓存
         val parsed = withContext(Dispatchers.IO) {
-            runCatching { readBook(context, loaded.filePath) }.getOrNull()
+            try {
+                readBook(context, loaded.filePath)
+            } catch (e: Throwable) {
+                Log.e("FolioReader", "readBook 失败: $e", e)
+                null
+            }
         }
         if (parsed == null) {
             loadFailed = true
+        } else if (parsed.isEmpty()) {
+            // 解析成功但无任何章节:视为无法阅读(可能损坏/空文件)
+            loadFailed = true
         } else {
-            parsedStarts = parsed.chapterStarts.ifEmpty { null }
-            parsedTitles = parsed.titles.ifEmpty { null }
-            text = parsed.text
-            ReaderCache.memoryStoreText(loaded.id, fp, parsed.text)
-            if (fp != null) saveScope.launch { ReaderCache.saveText(context, loaded.id, fp, parsed.text) }
+            chapters = parsed
+            ReaderCache.memoryStoreChapters(loaded.id, fp, parsed)
         }
     }
 
@@ -207,7 +185,7 @@ fun ReaderScreen(
     // 加载期/就绪期直接切换(无淡入):曾用 Crossfade 淡入 ReaderPager,过渡期新页首帧未画出
     // 会露背景色(深色下=黑闪,实测「占位页→完整页」期间闪黑);加载期顶栏与就绪顶栏
     // 主干一致(返回键+书名),就绪后仅正文由门禁淡入,顶栏无切换不闪。
-    if (book == null || text == null || loadFailed) {
+    if (book == null || chapters == null || loadFailed) {
         Column(modifier = Modifier.fillMaxSize()) {
             // 加载期顶栏:返回键+书名(与就绪顶栏主干一致);书名未加载时空串占位
             // (titleRes=0 不可传 null 走 stringResource 分支,会崩);返回=直接退出(无进度可保存)
@@ -221,11 +199,9 @@ fun ReaderScreen(
     } else {
         ReaderPager(
                     book = book!!,
-                    text = text!!,
+                    chapters = chapters!!,
                     bookId = bookId,
                     sourceFp = sourceFp,
-                    parsedStarts = parsedStarts,
-                    parsedTitles = parsedTitles,
                     repo = repo,
                     saveScope = saveScope,
                     darkTheme = darkTheme,
@@ -268,10 +244,27 @@ internal val ReaderStyleKey: String =
 internal val ReaderHPadding = 20.dp
 internal val ReaderVPadding = 16.dp
 
-/** 单章分页:章内起始字符偏移列表(绝对下标),末项 = 章末哨兵;每章十几页,毫秒级 */
+/** 章节显示文本:标题独立一行 + 正文(空标题则仅正文)。分页/位置/朗读共用同一坐标空间 */
+internal fun chapterDisplayText(ch: Chapter): String =
+    if (ch.title.isBlank()) ch.content else "${ch.title}\n${ch.content}"
+
+/** 章节显示 AnnotatedString:标题行加粗(照搬 Legado 默认 textBold=0 的标题加粗),其余与正文一致 */
+internal fun buildChapterAnnotated(ch: Chapter): AnnotatedString {
+    val title = ch.title
+    if (title.isBlank()) return AnnotatedString(ch.content)
+    return buildAnnotatedString {
+        append(title)
+        append('\n')
+        append(ch.content)
+        addStyle(SpanStyle(fontWeight = FontWeight.Bold), 0, title.length)
+    }
+}
+
+/** 单章分页:章内起始字符偏移列表(本地下标),末项 = 章末哨兵;每章十几页,毫秒级。
+ * contentLength = 章节显示文本(标题+正文)长度,与 buildChapterAnnotated 产物一致 */
 internal fun chapterPagesOf(
     annotated: AnnotatedString,
-    chapter: Chapter,
+    contentLength: Int,
     measurer: TextMeasurer,
     style: TextStyle,
     maxWidth: Int,
@@ -279,19 +272,19 @@ internal fun chapterPagesOf(
     linesPerPage: Int,
 ): List<Int> {
     val pages = ArrayList<Int>()
-    var cur = chapter.start
+    var cur = 0
     pages.add(cur)
-    while (cur < chapter.end) {
+    while (cur < contentLength) {
         val end = nextPageEnd(
             annotated, cur, measurer, style,
-            maxWidth, maxHeight, linesPerPage, linesPerPage * 120, chapter.end,
+            maxWidth, maxHeight, linesPerPage, linesPerPage * 120, contentLength,
         )
         pages.add(end)
-        if (end >= chapter.end) break
+        if (end >= contentLength) break
         cur = end
     }
     // 空章兜底:至少一页(渲染空白页)
-    if (pages.size == 1) pages.add(chapter.end)
+    if (pages.size == 1) pages.add(contentLength)
     return pages
 }
 
@@ -299,11 +292,9 @@ internal fun chapterPagesOf(
 @Composable
 private fun ReaderPager(
     book: Book,
-    text: String,
+    chapters: List<Chapter>,
     bookId: Long,
     sourceFp: String?,
-    parsedStarts: List<Int>?,
-    parsedTitles: List<String>?,
     repo: BookRepository,
     saveScope: CoroutineScope,
     darkTheme: Boolean,
@@ -315,44 +306,14 @@ private fun ReaderPager(
     val measurer = rememberTextMeasurer()
     val density = LocalDensity.current
     val fontFamilyResolver = LocalFontFamilyResolver.current
-    // 章节块首识别(内存/磁盘缓存,整本扫描一次);章节模型与目录都依赖
-    var chapterStarts by remember { mutableStateOf<List<Int>?>(null) }
-    LaunchedEffect(text) {
-        val fp = sourceFp
-        val cached = if (fp != null) {
-            ReaderCache.memoryLoadChapterStarts(bookId, fp, ChapterCacheKey)
-                ?: withContext(Dispatchers.IO) {
-                    ReaderCache.loadChapterStarts(context, bookId, fp, ChapterCacheKey)
-                }
-        } else {
-            null
-        }
-        if (cached != null) {
-            chapterStarts = cached
-        } else {
-            // epub/azw3 用解析出的块首;txt 用正则扫描
-            val detected = withContext(Dispatchers.Default) {
-                parsedStarts ?: ChapterDetector.detectChapterStarts(text)
-            }
-            chapterStarts = detected
-            if (fp != null) {
-                ReaderCache.memoryStoreChapterStarts(bookId, fp, ChapterCacheKey, detected)
-                saveScope.launch {
-                    ReaderCache.saveChapterStarts(context, bookId, fp, ChapterCacheKey, detected)
-                }
-            }
-        }
+    if (chapters.isEmpty()) {
+        // 无章节:直接返回(上层已按 loadFailed 兜底,这里防御)
+        onClose()
+        return
     }
-    // 章节模型(内存切片):块 i 到块 i+1 之间为第 i 章
-    val chapters = remember(chapterStarts, text) { buildChapters(text, chapterStarts ?: emptyList(), parsedTitles ?: emptyList()) }
-    // debug:书末章节规模(「跳书末章卡加载」排查:章节 end 延伸到全文末尾时单章可能巨大)
-    LaunchedEffect(chapters) {
-        val tail = chapters.takeLast(5).map { "${it.title}[${it.end - it.start}]" }
-        Log.d("FolioReader", "chapters=${chapters.size} tailLen=${chapters.last().end - chapters.last().start} tail=$tail")
-    }
-    // 当前章(从 Book 恢复,章节列表就绪后校正)
+    // 当前章(从 Book 恢复;章节列表已定,直接钳制)
     var curChapter by remember(chapters) {
-        mutableIntStateOf(book.currentChapterIndex.coerceIn(0, (chapters.size - 1).coerceAtLeast(0)))
+        mutableIntStateOf(book.currentChapterIndex.coerceIn(0, chapters.lastIndex))
     }
     // 当前阅读位置(章号, 章内偏移),供顶栏返回立即保存
     var currentPosition by remember { mutableStateOf(book.currentChapterIndex to book.chapterPosition) }
@@ -393,7 +354,7 @@ private fun ReaderPager(
             runCatching { context.unbindService(ttsConnection) }
         }
     }
-    // 当前朗读段在整本正文的绝对范围(用于渲染高亮);State 收集自服务
+    // 当前朗读段(章号 + 章内本地范围),用于渲染高亮;State 收集自服务
     val ttsHighlight = ttsService?.highlightRange?.collectAsState()?.value
     // 是否正在朗读;驱动停止淡出与 toggle 图标
     val ttsActive = ttsService?.active?.collectAsState()?.value ?: false
@@ -522,51 +483,42 @@ private fun ReaderPager(
                         lineHeight = (textHeight.toFloat() / linesPerPage / density.density / density.fontScale).sp,
                     )
                 }
-                // 章节标题加粗:测量与渲染共用同一份 AnnotatedString(保证分页边界一致)。
-                // 1MB 级正文拼加粗有几十 ms 主线程开销(正文到达那帧 40-60ms 掉帧根因),放后台算;
-                // 章节未检测完成不拼(门禁关着不渲染,省一次无用拼装);key 变化先置 null 失效,
-                // 避免分页用到旧版——分支守卫含 null,就绪前不渲染
-                var annotatedState by remember { mutableStateOf<AnnotatedString?>(null) }
-                LaunchedEffect(text, chapterStarts) {
-                    val starts = chapterStarts ?: return@LaunchedEffect
-                    annotatedState = null
-                    annotatedState = withContext(Dispatchers.Default) {
-                        buildAnnotatedText(text, starts)
-                    }
+                // 每章显示文本(标题加粗)与章内页表:内存缓存,宽高/样式变化时整表作废。
+                // 章节内容独立,只按需构建当前章 ±2 的 annotated/页表(懒构建,不整本拼装)
+                val chapterAnnotated = remember(textWidth, textHeight, readerStyle) {
+                    mutableStateMapOf<Int, AnnotatedString>()
                 }
-                val annotated = annotatedState
-                // 每章页表缓存(内存,宽高/样式变化时整表作废);磁盘缓存按章键控
                 val chapterPages = remember(textWidth, textHeight, readerStyle) { mutableStateMapOf<Int, List<Int>>() }
                 // 目录跳转/切章后的待滚页(章内序号);-1 = 无,Int.MAX_VALUE = 章末
                 var pendingPage by remember { mutableIntStateOf(-1) }
-                // 后台补算:当前章 + 前后各 2 章页表(门禁 + 边界翻页无缝)。
+                // 后台补算:当前章 + 前后各 2 章(annotated + 页表),门禁 + 边界翻页无缝。
                 // 预计算窗口必须覆盖切章目标的后一哨兵章,否则布局渐进变化会让翻页器页码错位/冻住。
-                // key 含 chapterStarts:检测完成(null→[]/实际列表)后 chapters 值可能不变(无章节兜底一章),
-                // 仅依赖 chapters 会漏重启,页表永不生成导致门禁永久空白
-                LaunchedEffect(curChapter, textWidth, textHeight, chapters, chapterStarts, annotated) {
-                    if (chapterStarts == null || chapters.isEmpty()) return@LaunchedEffect
-                    val annotatedText = annotated ?: return@LaunchedEffect
-                    // 离当前章越近越先算:门禁只等当前章页表,当前章优先 → 跳章秒开;
-                    // 曾按 [cur-2..cur+2] 顺序串行,当前章排第 3,被前面的超长章阻塞(实测跳书末章等 ~6s)
+                LaunchedEffect(curChapter, textWidth, textHeight, chapters) {
+                    if (chapters.isEmpty()) return@LaunchedEffect
                     val need = listOf(curChapter - 2, curChapter - 1, curChapter, curChapter + 1, curChapter + 2)
                         .filter { it in chapters.indices && chapterPages[it] == null }
                         .sortedBy { abs(it - curChapter) }
                     for (idx in need) {
                         val t0 = SystemClock.uptimeMillis()
-                        val fp = sourceFp
-                        val cached = fp?.let {
+                        // 先保证本章 annotated 就绪(后台),分页/渲染共用同一份(保证分页边界一致)
+                        val annotated = chapterAnnotated[idx] ?: withContext(Dispatchers.Default) {
+                            buildChapterAnnotated(chapters[idx]).also { chapterAnnotated[idx] = it }
+                        }
+                        val contentLen = annotated.length
+                        // 磁盘页表缓存(章内本地偏移)
+                        val cached = sourceFp?.let {
                             withContext(Dispatchers.IO) {
                                 ReaderCache.loadPages(context, bookId, it, idx, textWidth, textHeight, ReaderStyleKey)
                             }
                         }
                         // 缓存自校验:首边界按当前度量重测(字体度量可能变化),不一致则作废重算
                         val valid = cached != null && cached.size >= 2 &&
-                            cached.last() <= chapters[idx].end &&
+                            cached.last() <= contentLen &&
                             withContext(Dispatchers.Default) {
                                 val bgMeasurer = TextMeasurer(fontFamilyResolver, density, LayoutDirection.Ltr)
                                 nextPageEnd(
-                                    annotatedText, cached[0], bgMeasurer, readerStyle,
-                                    textWidth, textHeight, linesPerPage, linesPerPage * 120, chapters[idx].end,
+                                    annotated, cached[0], bgMeasurer, readerStyle,
+                                    textWidth, textHeight, linesPerPage, linesPerPage * 120, contentLen,
                                 ) == cached[1]
                             }
                         val pages = if (valid) {
@@ -574,11 +526,11 @@ private fun ReaderPager(
                         } else {
                             val computed = withContext(Dispatchers.Default) {
                                 val bgMeasurer = TextMeasurer(fontFamilyResolver, density, LayoutDirection.Ltr)
-                                chapterPagesOf(annotatedText, chapters[idx], bgMeasurer, readerStyle, textWidth, textHeight, linesPerPage)
+                                chapterPagesOf(annotated, contentLen, bgMeasurer, readerStyle, textWidth, textHeight, linesPerPage)
                             }
-                            if (fp != null) {
+                            if (sourceFp != null) {
                                 saveScope.launch {
-                                    ReaderCache.savePages(context, bookId, fp, idx, textWidth, textHeight, ReaderStyleKey, computed)
+                                    ReaderCache.savePages(context, bookId, sourceFp, idx, textWidth, textHeight, ReaderStyleKey, computed)
                                 }
                             }
                             computed
@@ -586,14 +538,14 @@ private fun ReaderPager(
                         chapterPages[idx] = pages
                         // debug:各章分页耗时与页数(卡加载排查:末尾大章会在此耗时数秒到数十秒)
                         val dt = SystemClock.uptimeMillis() - t0
-                        Log.d("FolioReader", "pages ch=$idx \"${chapters[idx].title}\" len=${chapters[idx].end - chapters[idx].start} n=${pages.size - 1} ${if (valid) "cached" else "calc"} ${dt}ms")
+                        Log.d("FolioReader", "pages ch=$idx \"${chapters[idx].title}\" len=$contentLen n=${pages.size - 1} ${if (valid) "cached" else "calc"} ${dt}ms")
                     }
                 }
 
                 // 目录跳转:切章 + 定位章首(每章页表毫秒级,远跳瞬时)
                 LaunchedEffect(pendingJump) {
                     if (pendingJump >= 0 && pendingJump in chapters.indices) {
-                        Log.d("FolioReader", "jump ch=$pendingJump \"${chapters[pendingJump].title}\" at ${SystemClock.uptimeMillis()}")
+                        Log.d("FolioReader", "jump ch=$pendingJump \"${chapters[pendingJump].title}\"")
                         curChapter = pendingJump
                         pendingPage = 0
                         pendingJump = -1
@@ -604,14 +556,13 @@ private fun ReaderPager(
                 // 外层 Box 强制居中(BoxWithConstraints 默认左上对齐,Crossfade 过渡期内容定位稳定);
                 Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                 Crossfade(
-                    targetState = chapterStarts == null || annotated == null || chapterPages[curChapter] == null,
+                    targetState = chapterPages[curChapter] == null,
                     animationSpec = tween(AnimationTokens.Large),
                     label = "readerGate",
                 ) { loading ->
                     // Crossfade 过渡期会同时组合两分支:目标章页表未就绪时(跳转淡出阶段)也走加载分支,防 `!!` 空指针
                     val curPages = chapterPages[curChapter]
-                    val curAnnotated = annotated
-                    if (loading || curPages == null || curAnnotated == null) {
+                    if (loading || curPages == null) {
                         Unit // 加载期间不显示任何内容,就绪后淡入
                     } else {
                     // 目录跳转后正文淡入:key(jumpSeq) 每次跳转重建,Animatable 0→1;翻页跨章序号不变不触发,初始打开(序号 0)也不触发
@@ -625,19 +576,21 @@ private fun ReaderPager(
                         val ch = curChapter // 本组合的章节:effect 只认自己组合时的章,防跨章组合错位
                         val hasPrev = ch > 0
                         val hasNext = ch < chapters.lastIndex
+                        val prevAnnotated = if (hasPrev) chapterAnnotated[ch - 1] else null
                         val prevPages = if (hasPrev) chapterPages[ch - 1] else null
+                        val nextAnnotated = if (hasNext) chapterAnnotated[ch + 1] else null
                         val nextPages = if (hasNext) chapterPages[ch + 1] else null
                         val baseIndex = if (hasPrev) 1 else 0
                         val realPages = curPages.size - 1 // 末项为章末哨兵
                         val pageCount = realPages + (if (hasPrev) 1 else 0) + (if (hasNext) 1 else 0)
-                        val chapterStart = chapters[ch].start
+                        val contentLen = curPages.last()
 
                         // 初始页:目录跳转/切章用待滚页,否则恢复章内位置
                         val initialPage = remember(curPages, pendingPage) {
                             val pageInChapter = if (pendingPage >= 0) {
                                 if (pendingPage == Int.MAX_VALUE) realPages - 1 else pendingPage.coerceIn(0, realPages - 1)
                             } else {
-                                curPages.indexOfLast { it - chapterStart <= book.chapterPosition }
+                                curPages.indexOfLast { it <= book.chapterPosition }
                                     .coerceIn(0, realPages - 1)
                             }
                             baseIndex + pageInChapter
@@ -653,15 +606,20 @@ private fun ReaderPager(
                             else -> "c$ch-${pagerIndex - baseIndex}"
                         }
 
-                        // 哨兵页内容:前哨 = 前一章末页,后哨 = 下一章首页;相邻章未就绪时为占位(null → 空白页)
-                        fun pageRangeOf(pagerIndex: Int): Pair<Int, Int>? = when {
+                        // 页 → (所属章号, 该章显示 AnnotatedString, 章内本地起止);哨兵页未就绪返回 null(渲染空白占位)
+                        fun pageInfoOf(pagerIndex: Int): Triple<Int, AnnotatedString, Pair<Int, Int>>? = when {
                             hasPrev && pagerIndex == 0 ->
-                                prevPages?.let { it[it.size - 2] to it[it.size - 1] }
+                                prevPages?.takeIf { it.size >= 2 }?.let { pp ->
+                                    prevAnnotated?.let { Triple(ch - 1, it, pp[pp.size - 2] to pp[pp.size - 1]) }
+                                }
                             hasNext && pagerIndex == pageCount - 1 ->
-                                nextPages?.let { it[0] to it[1] }
+                                nextPages?.takeIf { it.size >= 2 }?.let { np ->
+                                    nextAnnotated?.let { Triple(ch + 1, it, np[0] to np[1]) }
+                                }
                             else -> {
                                 val p = pagerIndex - baseIndex
-                                curPages[p] to curPages[p + 1]
+                                val annotated = chapterAnnotated[ch] ?: return null
+                                Triple(ch, annotated, curPages[p] to curPages[p + 1])
                             }
                         }
 
@@ -693,7 +651,7 @@ private fun ReaderPager(
                                 val forward = ownNext != null && page == ownCount - 1
                                 android.util.Log.d(
                                     "FolioPos",
-                                    "edge ch=$ch cur=$curChapter page=$page count=$ownCount back=$back fwd=$forward",
+                                    "edge ch=$ch cur=$curChapter page=$page count=$ownCount back=$back fwd=$forward sc=$scrolling off=$offset",
                                 )
                                 if (back || forward) {
                                     switched = true
@@ -731,7 +689,6 @@ private fun ReaderPager(
                         LaunchedEffect(Unit) {
                             snapshotFlow { pagerState.isScrollInProgress to ttsScrolling }.collect { (scrolling, ttsScroll) ->
                                 if (scrolling && !ttsScroll && currentTtsActive) {
-                                    android.util.Log.d("FolioPos", "dragStart stop tts")
                                     userLeftTts = true
                                     ttsService?.stopReadingAt(currentCh, currentPos.second)
                                 }
@@ -747,15 +704,11 @@ private fun ReaderPager(
                             // 滚动进行中(用户滑动/动画)不插队:否则用户滑到别的页的瞬间,
                             // 朗读推进触发的自动翻页会把滑动动画掐断,出现一帧跳跃
                             if (pagerState.isScrollInProgress) return@LaunchedEffect
-                            // 高亮段必须在当前章范围内才翻页(续章前旧高亮不触发)
-                            if (hl.first < chapterStart || hl.first >= curPages.last()) return@LaunchedEffect
-                            val pageInChapter = curPages.indexOfLast { it <= hl.first }
+                            // 高亮段必须在本章范围内才翻页(续章前旧高亮不触发)
+                            if (hl.chapter != ch || hl.start < 0 || hl.start >= curPages.last()) return@LaunchedEffect
+                            val pageInChapter = curPages.indexOfLast { it <= hl.start }
                                 .coerceIn(0, realPages - 1)
                             val target = baseIndex + pageInChapter
-                            android.util.Log.d(
-                                "FolioPos",
-                                "autoScroll ch=$ch target=$target cur=${pagerState.currentPage} hl=${hl.first}",
-                            )
                             if (target != pagerState.currentPage) {
                                 // 瞬间跳转(用户实测平滑滚动效果不理想,已回滚;定位准确、无动画干扰)
                                 ttsScrolling = true
@@ -773,7 +726,6 @@ private fun ReaderPager(
                         // rc<0 直接 return,不会误拉回朗读章
                         LaunchedEffect(ttsReadingChapter, chapterPages[ttsReadingChapter.coerceAtLeast(0)]) {
                             val rc = ttsReadingChapter
-                            android.util.Log.d("FolioPos", "follow rc=$rc cur=$curChapter active=$ttsActive")
                             if (rc < 0 || rc !in chapters.indices) return@LaunchedEffect
                             // 只在朗读章「变化」时跟随:用户跳章/组合重建时 rc 未变,不误拉回
                             if (rc == prevReadingChapter) return@LaunchedEffect
@@ -786,9 +738,9 @@ private fun ReaderPager(
                             val pages = chapterPages[rc]
                             val hl = ttsHighlight
                             pendingPage = if (pages != null && hl != null &&
-                                hl.first >= chapters[rc].start && hl.first < pages.last()
+                                hl.chapter == rc && hl.start in 0 until pages.last()
                             ) {
-                                pages.indexOfLast { it <= hl.first }.coerceIn(0, pages.size - 2)
+                                pages.indexOfLast { it <= hl.start }.coerceIn(0, pages.size - 2)
                             } else {
                                 0
                             }
@@ -805,18 +757,11 @@ private fun ReaderPager(
                             // 停止朗读(否则朗读仍在播,边界切章会与跨章跟随打架,页面被拉回朗读章)
                             if (pageInPager < baseIndex || pageInPager >= baseIndex + realPages) {
                                 if (ttsActive) {
-                                    android.util.Log.d(
-                                        "FolioPos",
-                                        "sentinel ch=$ch page=$pageInPager base=$baseIndex real=$realPages",
-                                    )
                                     userLeftTts = true
                                     if (hasPrev && pageInPager == 0) {
                                         val prev = chapterPages[ch - 1]
                                         if (prev != null) {
-                                            ttsService?.stopReadingAt(
-                                                ch - 1,
-                                                (prev[prev.size - 2] - chapters[ch - 1].start).coerceAtLeast(0),
-                                            )
+                                            ttsService?.stopReadingAt(ch - 1, prev[prev.size - 2])
                                         } else {
                                             ttsService?.stopReadingAt(ch, 0)
                                         }
@@ -830,21 +775,17 @@ private fun ReaderPager(
                             // (曾用 coerceIn 硬夹,切章瞬间会算出错误章内位置污染 currentPosition,
                             // 恢复朗读时从错误末尾读、立刻跳章)
                             val abs = curPages[pageInPager - baseIndex]
-                            currentPosition = ch to (abs - chapters[ch].start)
+                            currentPosition = ch to abs
                             // 用户移动阅读位置(翻页/跳章)时,朗读停止:避免「看 A 页、听 B 页」的脱节。
                             // 朗读自动滚动落点=高亮段所在页,当前页含高亮段起点时视为朗读引起,不停。
                             val hl = ttsHighlight
-                            val pageEnd = curPages.getOrElse(pageInPager - baseIndex + 1) { chapters[ch].end }
-                            val highlightOnPage = hl != null && hl.first >= abs && hl.first < pageEnd
+                            val pageEnd = curPages.getOrElse(pageInPager - baseIndex + 1) { contentLen }
+                            val highlightOnPage = hl != null && hl.chapter == ch && hl.start >= abs && hl.start < pageEnd
                             if (!highlightOnPage && ttsActive) {
                                 // 滑页/跳章:标记用户已离开并同步停朗读(不走 intent,避免异步延迟
                                 // 期间朗读自动翻页把页面拉回);恢复播放从当前页读(不重复已看内容)
-                                android.util.Log.d(
-                                    "FolioPos",
-                                    "userLeft ch=$ch page=$pageInPager hl=$hl abs=$abs",
-                                )
                                 userLeftTts = true
-                                ttsService?.stopReadingAt(ch, abs - chapters[ch].start)
+                                ttsService?.stopReadingAt(ch, abs)
                             }
                         }
                         // 翻页/切章后延迟保存位置,避免快速连翻频繁写库;只处理本组合的章
@@ -856,7 +797,7 @@ private fun ReaderPager(
                             val pageInPager = pagerState.currentPage
                             if (pageInPager < baseIndex || pageInPager >= baseIndex + realPages) return@LaunchedEffect
                             val abs = curPages[pageInPager - baseIndex]
-                            savePosition(repo, saveScope, book, ch, abs - chapters[ch].start)
+                            savePosition(repo, saveScope, book, ch, abs)
                         }
 
                         HorizontalPager(
@@ -869,16 +810,16 @@ private fun ReaderPager(
                             userScrollEnabled = pageTurnMode == PageTurnMode.SWIPE,
                             key = { keyOf(it) },
                         ) { page ->
-                            val range = pageRangeOf(page)
+                            val info = pageInfoOf(page)
                             Box(
                                 modifier = Modifier
                                     .fillMaxSize()
                                     .padding(ReaderHPadding, ReaderVPadding),
                             ) {
                                 // 占位哨兵页(相邻章加载中):空白,很快被真实内容填上
-                                if (range != null) {
+                                if (info != null) {
                                     Text(
-                                        text = withHighlight(curAnnotated, range, ttsHighlight, darkTheme, dynamicColor),
+                                        text = withHighlight(info.second, info.third, info.first, ttsHighlight, darkTheme, dynamicColor),
                                         style = readerStyle,
                                         color = MaterialTheme.colorScheme.onSurface,
                                     )
@@ -948,38 +889,28 @@ private fun savePosition(
     scope.launch { repo.updatePosition(book.id, chapterIndex, chapterPos) }
 }
 
-/** 构造分页/渲染共用的正文:章节标题行加粗(照搬 Legado 默认 textBold=0 的标题加粗),其余与正文一致 */
-internal fun buildAnnotatedText(text: String, chapterStarts: List<Int>): AnnotatedString {
-    if (chapterStarts.isEmpty()) return AnnotatedString(text)
-    return buildAnnotatedString {
-        append(text)
-        for (s in chapterStarts) {
-            if (s >= text.length) continue
-            val e = text.indexOf('\n', s).let { if (it == -1) text.length else it }
-            addStyle(SpanStyle(fontWeight = FontWeight.Bold), s, e)
-        }
-    }
-}
-
 /**
- * 渲染期叠加朗读高亮:页面文本是整本正文的 [range.first, range.second) 切片,
- * 朗读高亮 [highlight] 是整本正文的绝对范围;两者有交集时,在切片上按
- * 「切片内相对偏移」把当前朗读段文字染成主题色(primary)。高亮只作用于
- * 渲染层,不进分页测量用的 annotated(保证分页边界不受朗读状态影响)。
+ * 渲染期叠加朗读高亮:页面文本是某章显示文本的 [range.first, range.second) 本地切片,
+ * 朗读高亮 [highlight] 形如 (章号, 章内起, 章内止),只在「渲染章 == 高亮章」时叠加;
+ * 两者有交集时,在切片上按「切片内相对偏移」把当前朗读段文字染成主题色(primary)。
+ * 高亮只作用于渲染层,不进分页测量用的 annotated(保证分页边界不受朗读状态影响)。
  */
 @Composable
 private fun withHighlight(
     annotated: AnnotatedString,
     range: Pair<Int, Int>,
-    highlight: Pair<Int, Int>?,
+    chapterIdx: Int,
+    highlight: ChapterRange?,
     darkTheme: Boolean,
     dynamicColor: Boolean,
 ): AnnotatedString {
-    if (highlight == null) return annotated.subSequence(range.first, range.second)
+    if (highlight == null || highlight.chapter != chapterIdx) {
+        return annotated.subSequence(range.first, range.second)
+    }
     val pageStart = range.first
     val pageEnd = range.second
-    val hs = highlight.first.coerceIn(pageStart, pageEnd)
-    val he = highlight.second.coerceIn(pageStart, pageEnd)
+    val hs = highlight.start.coerceIn(pageStart, pageEnd)
+    val he = highlight.end.coerceIn(pageStart, pageEnd)
     if (hs >= he) return annotated.subSequence(pageStart, pageEnd)
     // 朗读高亮色:动态取色时用当前主题 primary;否则 HCT 用种子色互补色相(hue+180,黄→蓝紫),
     // 与暖黄正文形成强对比,chroma 中等、两主题 tone 适中,明显且不刺眼

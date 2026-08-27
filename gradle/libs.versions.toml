@@ -21,6 +21,8 @@ coreSplashscreen = "1.2.0"
 navigationCompose = "2.9.8"
 profileinstaller = "1.4.1"
 benchmark = "1.5.0-rc01"
+# 与 Legado 一致;1.16.2 起有破坏性变更(如 \v 匹配行为),勿升级(见 https://github.com/jhy/jsoup/pull/2017)
+jsoup = "1.16.2"
 
 [libraries]
 androidx-core-ktx = { group = "androidx.core", name = "core-ktx", version.ref = "coreKtx" }
@@ -50,6 +52,7 @@ okhttp = { group = "com.squareup.okhttp3", name = "okhttp", version.ref = "okhtt
 androidx-navigation-compose = { group = "androidx.navigation", name = "navigation-compose", version.ref = "navigationCompose" }
 androidx-profileinstaller = { group = "androidx.profileinstaller", name = "profileinstaller", version.ref = "profileinstaller" }
 androidx-benchmark-macro-junit4 = { group = "androidx.benchmark", name = "benchmark-macro-junit4", version.ref = "benchmark" }
+jsoup = { group = "org.jsoup", name = "jsoup", version.ref = "jsoup" }
 
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }

@@ -1,0 +1,7 @@
+{
+  "uniqueId": "jsoup",
+  "name": "jsoup",
+  "description": "epub/azw3 正文 HTML 解析:取 body 后转成阅读器纯文本(对齐 Legado HtmlFormatter 思路)",
+  "website": "https://jsoup.org/",
+  "licenses": ["MIT"]
+}

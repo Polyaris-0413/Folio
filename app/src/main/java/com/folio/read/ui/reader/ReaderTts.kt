@@ -9,11 +9,14 @@ import android.speech.tts.TextToSpeech
 import android.speech.tts.UtteranceProgressListener
 import java.util.Locale
 
+/** 朗读高亮区间:章节号 + 该章内本地起止(与阅读页章内坐标一致) */
+data class ChapterRange(val chapter: Int, val start: Int, val end: Int)
+
 /**
  * 基础版朗读:系统 TextToSpeech 逐段朗读,从 (章号, 章内偏移) 开始。
  * 文本按段落(换行)切分(照搬 Legado 的段落朗读思路),逐段喂 TTS,
  * 靠 UtteranceProgressListener 完成回调推进下一段。
- * 每段朗读时通过 [highlightRange] 暴露其在整本正文中的绝对字符范围,
+ * 每段朗读时通过 [highlightRange] 暴露其在所属章节内的本地字符范围,
  * 供阅读页做当前句高亮(渲染层加 span,不影响分页测量)。
  * 仅 Activity 存活期间朗读(基础版,退出即停;后台服务后续再做)。
  */
@@ -95,8 +98,8 @@ class ReaderTts(
         .setOnAudioFocusChangeListener(focusListener)
         .build()
 
-    /** 当前朗读段在整本正文中的绝对字符范围;停止后保留最后一段(供阅读页淡出),新朗读/释放时清空 */
-    val highlightRange = kotlinx.coroutines.flow.MutableStateFlow<Pair<Int, Int>?>(null)
+    /** 当前朗读段(章号 + 章内本地起止);停止后保留最后一段(供阅读页淡出),新朗读/释放时清空 */
+    val highlightRange = kotlinx.coroutines.flow.MutableStateFlow<ChapterRange?>(null)
 
     /** 是否正在朗读(含暂停);可观察,供阅读页驱动淡出 */
     val active = kotlinx.coroutines.flow.MutableStateFlow(false)
@@ -172,9 +175,9 @@ class ReaderTts(
     }
 
     /**
-     * 从指定位置开始朗读一组「页切片」(每项=一页文本 + 绝对范围)。
-     * 页内按段落拆成子段逐个 speak(高亮=当前子段);整页子段读完才到下一页,
-     * 读完一页自动推进翻页——跨页段落被页边界自然切分,不等待。
+     * 从指定位置开始朗读一组「章内切片」(每项=一段文本 + 章内本地起止)。
+     * 段内按行拆成子段逐个 speak(高亮=当前子段);整段子段读完才到下一段,
+     * 读完一章自动推进下一章(由服务回调决定)——跨章段落被段边界自然切分,不等待。
      */
     fun readSlices(slices: List<Slice>) {
         if (!ready) return
@@ -191,8 +194,8 @@ class ReaderTts(
         speakNext()
     }
 
-    /** 一个朗读切片:文本 + 在整本正文的绝对起止 */
-    data class Slice(val text: String, val start: Int, val end: Int)
+    /** 一个朗读切片:文本 + 所属章号 + 章内本地起止 */
+    data class Slice(val chapter: Int, val text: String, val start: Int, val end: Int)
 
     /** 播放/暂停切换 */
     fun togglePause() {
@@ -264,11 +267,11 @@ class ReaderTts(
 
     private fun speakNext() {
         if (!playing || paused) return
-        // 页内子段还有剩余:读当前段(subIndex 指向「正在读的段」,onDone 才推进;
+        // 段内子段还有剩余:读当前段(subIndex 指向「正在读的段」,onDone 才推进;
         // 暂停恢复时仍指向本段,从本段重新读,不会跳掉后半句)
         if (subIndex < subSlices.size) {
             val sub = subSlices[subIndex]
-            highlightRange.value = sub.start to sub.end
+            highlightRange.value = ChapterRange(sub.chapter, sub.start, sub.end)
             lastSpokenSeq = speakSeq
             speakStartedAt = SystemClock.uptimeMillis()
             currentTextLen = sub.text.length
@@ -279,7 +282,7 @@ class ReaderTts(
             tts?.speak(sub.text, TextToSpeech.QUEUE_FLUSH, null, (speakSeq++).toString())
             return
         }
-        // 当前页读完,进下一页
+        // 当前段读完,进下一段
         if (index >= paragraphs.size) {
             // 本章读完:停住(保留最后一段高亮供淡出),再由回调决定续章或停止
             playing = false
@@ -289,14 +292,14 @@ class ReaderTts(
         }
         val page = paragraphs[index]
         index++
-        // 页内按段落拆子段(高亮粒度);整页作为一个朗读单元推进
+        // 段内按行拆子段(高亮粒度);整段作为一个朗读单元推进
         subIndex = 0
         subSlices = buildList {
             var rel = 0
             val segs = page.text.split("\n")
             segs.forEachIndexed { i, seg ->
                 if (seg.isNotBlank()) {
-                    add(Slice(seg, page.start + rel, page.start + rel + seg.length))
+                    add(Slice(page.chapter, seg, page.start + rel, page.start + rel + seg.length))
                 }
                 rel += seg.length + if (i < segs.lastIndex) 1 else 0
             }

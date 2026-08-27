@@ -18,8 +18,8 @@ android {
         applicationId = "com.folio.read"
         minSdk = 31
         targetSdk = 37
-        versionCode = 3
-        versionName = "2.0.0"
+        versionCode = 4
+        versionName = "2.1.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
@@ -83,6 +83,7 @@ dependencies {
     implementation(libs.material.color.utilities)
     implementation(libs.aboutlibraries.compose.m3)
     implementation(libs.okhttp)
+    implementation(libs.jsoup)
     testImplementation(libs.junit)
     androidTestImplementation(platform(libs.androidx.compose.bom))
     androidTestImplementation(libs.androidx.compose.ui.test.junit4)

@@ -93,11 +93,10 @@ class ReaderTtsService : Service() {
     private var loading = false
 
     private var book: Book? = null
-    private var text: String? = null
     private var chapters: List<Chapter> = emptyList()
     private var curChapter = 0
-    /** 上次停止时的朗读位置(整本正文绝对偏移);停止后媒体栏/通知栏点播放从此处继续 */
-    private var lastStopPosition: Int? = null
+    /** 上次停止时的朗读位置(章号, 章内偏移);停止后媒体栏/通知栏点播放从此处继续 */
+    private var lastStopPosition: Pair<Int, Int>? = null
     /** 媒体会话/通知封面位图:书加载完成后生成一次(与书架封面同源同口径) */
     private var coverBitmap: Bitmap? = null
     /** 当前朗读章节标题(通知文案);文本加载完、朗读开始前为空 */
@@ -107,7 +106,7 @@ class ReaderTtsService : Service() {
 
     // 阅读页可观察状态(服务自有,tts 未创建时为默认值;朗读状态经协程转发到这些字段)
     val active = MutableStateFlow(false)
-    val highlightRange = MutableStateFlow<Pair<Int, Int>?>(null)
+    val highlightRange = MutableStateFlow<ChapterRange?>(null)
     val pausedState = MutableStateFlow(false)
     /** 服务当前朗读章:跨章时阅读页 UI 跟随切章(-1 = 未朗读) */
     val readingChapter = MutableStateFlow(-1)
@@ -225,9 +224,9 @@ class ReaderTtsService : Service() {
                 val ch = intent.getIntExtra(EXTRA_CHAPTER, -1)
                 val off = intent.getIntExtra(EXTRA_OFFSET, -1)
                 lastStopPosition = if (ch >= 0 && off >= 0) {
-                    chapters.getOrNull(ch)?.let { it.start + off }
+                    ch to off
                 } else {
-                    tts?.highlightRange?.value?.first
+                    tts?.highlightRange?.value?.let { it.chapter to it.start }
                 }
                 // 先立即停朗读:stopSelf 在有绑定客户端(阅读页)时不会马上销毁服务,
                 // 不显式 stop 的话朗读会继续
@@ -269,24 +268,20 @@ class ReaderTtsService : Service() {
                 return@launch
             }
             val fp = querySourceFingerprint(this@ReaderTtsService, loaded.filePath)
-            val parsed = withContext(Dispatchers.IO) {
-                runCatching { readBook(this@ReaderTtsService, loaded.filePath) }.getOrNull()
-            }
-            if (parsed == null) {
-                Log.d(TAG, "startReading: text null")
+            // 章节:进程内缓存 → 整本读取/解析(readBook 返回每章独立 content),回写内存缓存
+            val loadedChapters = ReaderCache.memoryLoadChapters(bookId, fp)
+                ?: withContext(Dispatchers.IO) {
+                    runCatching { readBook(this@ReaderTtsService, loaded.filePath) }.getOrNull()
+                }
+            if (loadedChapters == null || loadedChapters.isEmpty()) {
+                Log.d(TAG, "startReading: chapters empty")
                 loading = false
                 errorMsg.value = getString(R.string.tts_load_failed)
                 stopSelf()
                 return@launch
             }
-            val content = parsed.text
-            // epub/azw3 用解析出的块首;txt 用正则扫描
-            val starts = parsed.chapterStarts.ifEmpty {
-                withContext(Dispatchers.Default) { ChapterDetector.detectChapterStarts(content) }
-            }
-            val loadedChapters = buildChapters(content, starts)
+            ReaderCache.memoryStoreChapters(bookId, fp, loadedChapters)
             book = loaded
-            text = content
             chapters = loadedChapters
             coverBitmap = renderBookCover(loaded)
             loading = false
@@ -297,52 +292,9 @@ class ReaderTtsService : Service() {
         }
     }
 
-    /** 正文:内存缓存 → 磁盘缓存 → 整本读取+处理并回写(与阅读页同一套缓存,保证文本一致) */
-    private suspend fun loadText(book: Book, fp: String?): String? {
-        ReaderCache.memoryLoadText(book.id, fp)?.let { return it }
-        val cached = withContext(Dispatchers.IO) {
-            fp?.let { ReaderCache.loadText(this@ReaderTtsService, book.id, it) }
-        }
-        if (cached != null) {
-            ReaderCache.memoryStoreText(book.id, fp, cached)
-            return cached
-        }
-        val content = withContext(Dispatchers.IO) {
-            runCatching { readText(this@ReaderTtsService, book.filePath) }.getOrNull()
-        } ?: return null
-        val processed = withContext(Dispatchers.Default) { processParagraphs(content) }
-        ReaderCache.memoryStoreText(book.id, fp, processed)
-        if (fp != null) withContext(Dispatchers.IO) {
-            ReaderCache.saveText(this@ReaderTtsService, book.id, fp, processed)
-        }
-        return processed
-    }
-
-    /** 章节块首:缓存 → 整本扫描识别并回写(键含章节规则/文本处理版本) */
-    private suspend fun loadChapterStarts(book: Book, fp: String?, content: String): List<Int> {
-        if (fp != null) {
-            ReaderCache.memoryLoadChapterStarts(book.id, fp, ChapterCacheKey)?.let { return it }
-            val cached = withContext(Dispatchers.IO) {
-                ReaderCache.loadChapterStarts(this@ReaderTtsService, book.id, fp, ChapterCacheKey)
-            }
-            if (cached != null) {
-                ReaderCache.memoryStoreChapterStarts(book.id, fp, ChapterCacheKey, cached)
-                return cached
-            }
-        }
-        val starts = withContext(Dispatchers.Default) { ChapterDetector.detectChapterStarts(content) }
-        if (fp != null) {
-            ReaderCache.memoryStoreChapterStarts(book.id, fp, ChapterCacheKey, starts)
-            withContext(Dispatchers.IO) {
-                ReaderCache.saveChapterStarts(this@ReaderTtsService, book.id, fp, ChapterCacheKey, starts)
-            }
-        }
-        return starts
-    }
-
-    /** 从某章、章内偏移开始朗读(跨页段落整段读,与阅读页朗读同一套切片) */
+    /** 从某章、章内偏移开始朗读(跨页段落整段读,与阅读页朗读同一套切片);
+     * 切片坐标 = 该章显示文本(标题+正文)的章内本地偏移,与阅读页分页/位置共用同一坐标空间 */
     private fun playFrom(chapterIdx: Int, offset: Int) {
-        val content = text ?: return
         val chapter = chapters.getOrNull(chapterIdx) ?: return
         curChapter = chapterIdx
         // 通知阅读页当前朗读章:跨章时 UI 跟随切章(否则读完一章 UI 还停在旧章末页)
@@ -350,13 +302,15 @@ class ReaderTtsService : Service() {
         // 媒体会话点击目标=正在朗读的书:流体云/媒体卡点击从这里进入阅读页
         // (不设 sessionActivity 时,ColorOS 流体云点击会落到 launcher 主页——对照 Legado 修复)
         mediaSession?.setSessionActivity(openReaderIntent())
-        val start = (chapter.start + offset).coerceIn(chapter.start, chapter.end)
+        val text = chapterDisplayText(chapter)
+        val len = text.length
+        val start = offset.coerceIn(0, len)
         val slices = buildList {
             // 按句切分(而非自然段):朗读单元/高亮粒度=一句,暂停恢复重读也只是一句
-            val segs = splitSentences(content.substring(start, chapter.end))
+            val segs = splitSentences(text.substring(start, len))
             var rel = 0
             segs.forEach { seg ->
-                add(ReaderTts.Slice(seg, start + rel, start + rel + seg.length))
+                add(ReaderTts.Slice(chapterIdx, seg, start + rel, start + rel + seg.length))
                 rel += seg.length
             }
         }
@@ -370,12 +324,10 @@ class ReaderTtsService : Service() {
         tryPlay()
     }
 
-    /** 停止后恢复播放:从上次停止位置(整本正文绝对偏移)重播 */
+    /** 停止后恢复播放:从上次停止位置(章号, 章内偏移)重播 */
     private fun resumeFromLastStop() {
-        val abs = lastStopPosition ?: return
-        val idx = chapters.indexOfLast { it.start <= abs }.coerceAtLeast(0)
-        val chapter = chapters.getOrNull(idx) ?: return
-        playFrom(idx, (abs - chapter.start).coerceAtLeast(0))
+        val (idx, off) = lastStopPosition ?: return
+        playFrom(idx, off.coerceAtLeast(0))
     }
 
     /**
@@ -385,7 +337,7 @@ class ReaderTtsService : Service() {
      */
     fun stopReadingAt(chapter: Int, offset: Int) {
         savePosition()
-        lastStopPosition = chapters.getOrNull(chapter)?.let { it.start + offset }
+        lastStopPosition = chapter to offset.coerceAtLeast(0)
         // 朗读章归 -1:用户切章后组合重建时,阅读页跟随逻辑读到 -1 不会误拉回朗读章
         readingChapter.value = -1
         tts?.stop()
@@ -416,14 +368,12 @@ class ReaderTtsService : Service() {
         }
     }
 
-    /** 保存当前朗读位置(按当前高亮段换算章节与章内偏移),朗读结束/切章时调用 */
+    /** 保存当前朗读位置(按当前高亮段的章号与章内偏移),朗读结束/切章时调用 */
     private fun savePosition() {
         val currentBook = book ?: return
-        val abs = tts?.highlightRange?.value?.first ?: return
-        val idx = chapters.indexOfLast { it.start <= abs }.coerceAtLeast(0)
-        val chapter = chapters[idx]
+        val hl = tts?.highlightRange?.value ?: return
         serviceScope.launch {
-            repo.updatePosition(currentBook.id, idx, (abs - chapter.start).coerceAtLeast(0))
+            repo.updatePosition(currentBook.id, hl.chapter, hl.start.coerceAtLeast(0))
         }
     }
 
