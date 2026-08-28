@@ -51,8 +51,13 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.PlainTooltip
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.TooltipBox
+import androidx.compose.material3.TooltipDefaults
+import androidx.compose.material3.rememberTooltipState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.SideEffect
@@ -103,6 +108,7 @@ import com.folio.read.data.ShelfSyncSettings
 import com.folio.read.data.ShelfSyncSettingsRepository
 import com.folio.read.data.ShelfSettingsRepository
 import com.folio.read.ui.components.AppNavBar
+import com.folio.read.ui.components.rememberBelowTooltipPositionProvider
 import com.folio.read.ui.components.FolioAlertDialog
 import com.folio.read.ui.components.FolioTopBar
 import com.folio.read.ui.components.UpdateDialog
@@ -166,6 +172,7 @@ class MainActivity : ComponentActivity() {
     }
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun AppRoot(
     deepLinkBookId: Long?,
@@ -560,37 +567,61 @@ private fun AppRoot(
                                                 enter = fadeIn(animationSpec = tween(AnimationTokens.Large)),
                                                 exit = fadeOut(animationSpec = tween(AnimationTokens.Large)),
                                             ) {
-                                                IconButton(onClick = { showRenameDialog = true }) {
-                                                    Icon(
-                                                        painter = painterResource(R.drawable.ic_shelf_rename),
-                                                        contentDescription = stringResource(R.string.shelf_rename),
-                                                    )
+                                                TooltipBox(
+                                                    positionProvider = rememberBelowTooltipPositionProvider(),
+                                                    tooltip = { PlainTooltip { Text(stringResource(R.string.shelf_rename)) } },
+                                                    state = rememberTooltipState(),
+                                                ) {
+                                                    IconButton(onClick = { showRenameDialog = true }) {
+                                                        Icon(
+                                                            painter = painterResource(R.drawable.ic_shelf_rename),
+                                                            contentDescription = stringResource(R.string.shelf_rename),
+                                                        )
+                                                    }
                                                 }
                                             }
-                                            IconButton(onClick = { showDeleteConfirm = true }) {
-                                                Icon(
-                                                    painter = painterResource(R.drawable.ic_shelf_delete),
-                                                    contentDescription = stringResource(R.string.shelf_delete),
-                                                )
+                                            TooltipBox(
+                                                positionProvider = rememberBelowTooltipPositionProvider(),
+                                                tooltip = { PlainTooltip { Text(stringResource(R.string.shelf_delete)) } },
+                                                state = rememberTooltipState(),
+                                            ) {
+                                                IconButton(onClick = { showDeleteConfirm = true }) {
+                                                    Icon(
+                                                        painter = painterResource(R.drawable.ic_shelf_delete),
+                                                        contentDescription = stringResource(R.string.shelf_delete),
+                                                    )
+                                                }
                                             }
                                         }
                                     }
                                     else -> {
                                         // 搜索按钮在 overflow 左边;与选中态(重命名+删除)同为 96dp Row,间距统一
                                         Row(modifier = Modifier.align(Alignment.CenterEnd)) {
-                                            IconButton(onClick = { showSearch = true }) {
-                                                Icon(
-                                                    painter = painterResource(R.drawable.ic_search),
-                                                    contentDescription = stringResource(R.string.search),
-                                                )
+                                            TooltipBox(
+                                                positionProvider = rememberBelowTooltipPositionProvider(),
+                                                tooltip = { PlainTooltip { Text(stringResource(R.string.search)) } },
+                                                state = rememberTooltipState(),
+                                            ) {
+                                                IconButton(onClick = { showSearch = true }) {
+                                                    Icon(
+                                                        painter = painterResource(R.drawable.ic_search),
+                                                        contentDescription = stringResource(R.string.search),
+                                                    )
+                                                }
                                             }
                                             Box {
                                                 var shelfMenuExpanded by remember { mutableStateOf(false) }
-                                                IconButton(onClick = { shelfMenuExpanded = true }) {
-                                                    Icon(
-                                                        painter = painterResource(R.drawable.ic_more_vert),
-                                                        contentDescription = stringResource(R.string.shelf_more),
-                                                    )
+                                                TooltipBox(
+                                                    positionProvider = rememberBelowTooltipPositionProvider(),
+                                                    tooltip = { PlainTooltip { Text(stringResource(R.string.shelf_more)) } },
+                                                    state = rememberTooltipState(),
+                                                ) {
+                                                    IconButton(onClick = { shelfMenuExpanded = true }) {
+                                                        Icon(
+                                                            painter = painterResource(R.drawable.ic_more_vert),
+                                                            contentDescription = stringResource(R.string.shelf_more),
+                                                        )
+                                                    }
                                                 }
                                                 DropdownMenu(
                                                 expanded = shelfMenuExpanded,

@@ -76,7 +76,7 @@
     <string name="library_add_selected">添加选中</string>
     <string name="library_add_skipped">已跳过 %1$d 本重复书籍</string>
     <string name="library_select_all">全选</string>
-    <string name="shelf_more">更多操作</string>
+    <string name="shelf_more">更多</string>
     <string name="search">搜索</string>
     <string name="search_hint">搜索书名</string>
     <string name="search_empty">没有找到相关书籍</string>

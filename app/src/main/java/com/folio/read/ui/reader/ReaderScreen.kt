@@ -45,8 +45,13 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.PlainTooltip
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.TooltipBox
+import androidx.compose.material3.TooltipDefaults
+import androidx.compose.material3.rememberTooltipState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -92,6 +97,7 @@ import com.folio.read.data.PageTurnSettingsRepository
 import com.folio.read.ui.components.FolioAlertDialog
 import com.folio.read.ui.components.FolioTopBar
 import com.folio.read.ui.components.menuShape
+import com.folio.read.ui.components.rememberBelowTooltipPositionProvider
 import com.folio.read.ui.theme.AnimationTokens
 import com.folio.read.ui.theme.FolioSeedColor
 import com.materialkolor.hct.Hct
@@ -112,6 +118,7 @@ import kotlinx.coroutines.withContext
  * Book(currentChapterIndex/chapterPosition),重新进入时恢复到对应页。
  * 主题/窗口由宿主统一管理;onClose 语义=离开这本书(宿主负责 markRead 置顶 + 弹回书架)。
  */
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ReaderScreen(
     bookId: Long,
@@ -289,6 +296,7 @@ internal fun chapterPagesOf(
 }
 
 /** 分页 + 翻页 + 章节模型;顶栏返回时先保存当前阅读位置 */
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun ReaderPager(
     book: Book,
@@ -425,19 +433,31 @@ private fun ReaderPager(
                         handleBack()
                     },
                     actions = {
-                        IconButton(onClick = { showToc = true }) {
-                            Icon(
-                                painter = painterResource(R.drawable.ic_toc),
-                                contentDescription = stringResource(R.string.toc),
-                            )
+                        TooltipBox(
+                            positionProvider = rememberBelowTooltipPositionProvider(),
+                            tooltip = { PlainTooltip { Text(stringResource(R.string.toc)) } },
+                            state = rememberTooltipState(),
+                        ) {
+                            IconButton(onClick = { showToc = true }) {
+                                Icon(
+                                    painter = painterResource(R.drawable.ic_toc),
+                                    contentDescription = stringResource(R.string.toc),
+                                )
+                            }
                         }
                         // 额外功能:overflow 菜单(朗读等),容器色/圆角与书架菜单一致
                         var moreMenuExpanded by remember { mutableStateOf(false) }
-                        IconButton(onClick = { moreMenuExpanded = true }) {
-                            Icon(
-                                painter = painterResource(R.drawable.ic_more_vert),
-                                contentDescription = stringResource(R.string.shelf_more),
-                            )
+                        TooltipBox(
+                            positionProvider = rememberBelowTooltipPositionProvider(),
+                            tooltip = { PlainTooltip { Text(stringResource(R.string.shelf_more)) } },
+                            state = rememberTooltipState(),
+                        ) {
+                            IconButton(onClick = { moreMenuExpanded = true }) {
+                                Icon(
+                                    painter = painterResource(R.drawable.ic_more_vert),
+                                    contentDescription = stringResource(R.string.shelf_more),
+                                )
+                            }
                         }
                         DropdownMenu(
                             expanded = moreMenuExpanded,
