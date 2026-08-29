@@ -74,6 +74,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalFontFamilyResolver
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.platform.LocalWindowInfo
 import androidx.compose.ui.text.TextMeasurer
 import androidx.compose.ui.unit.LayoutDirection
@@ -118,7 +119,6 @@ import com.folio.read.ui.licenses.LicensesScreen
 import com.folio.read.ui.navigation.AppRoutes
 import com.folio.read.ui.navigation.AppSections
 import com.folio.read.ui.reader.ReaderScreen
-import com.folio.read.ui.search.SearchScreen
 import com.folio.read.ui.reader.ReaderHPadding
 import com.folio.read.ui.reader.ReaderVPadding
 import com.folio.read.ui.reader.preWarmBook
@@ -288,8 +288,12 @@ private fun AppRoot(
     // 阅读页覆盖层:在 main 目的地内渲染,main 保持存活 → 退出不重组(修复退出掉帧);
     // 覆盖层打开时 main 仍是当前目的地,返回键由 ReaderScreen 的 BackHandler 接管
     var readerBookId by remember { mutableStateOf<Long?>(null) }
-    // 搜索页覆盖层:书架顶栏搜索按钮进入;main 保持存活,退出不重组(与阅读页覆盖层同模式)
+    // 书架内联搜索:书架顶栏搜索图标切换(展开=下滑出搜索框并过滤网格);关书回书架后
+    // 状态保留,方便继续找下一本;收起时清空关键词(避免下次展开带着旧过滤结果误以为书丢了)
     var showSearch by remember { mutableStateOf(false) }
+    var searchQuery by remember { mutableStateOf("") }
+    // 收起搜索框时顺带收键盘(覆盖层/展开切换不会自动收)
+    val keyboard = LocalSoftwareKeyboardController.current
     // 退出动画期间内容需保持组合:捕获最后非空 id 供覆盖层内容使用
     var lastReaderBookId by remember { mutableStateOf<Long?>(null) }
     // 许可页/添加页覆盖层:与阅读页同模式,main 保持存活,退出不重组
@@ -602,7 +606,16 @@ private fun AppRoot(
                                                 tooltip = { PlainTooltip { Text(stringResource(R.string.search)) } },
                                                 state = rememberTooltipState(),
                                             ) {
-                                                IconButton(onClick = { showSearch = true }) {
+                                                // 搜索开关:收起时清空关键词(见 showSearch 声明处注释)
+                                                IconButton(onClick = {
+                                                    if (showSearch) {
+                                                        showSearch = false
+                                                        searchQuery = ""
+                                                        keyboard?.hide()
+                                                    } else {
+                                                        showSearch = true
+                                                    }
+                                                }) {
                                                     Icon(
                                                         painter = painterResource(R.drawable.ic_search),
                                                         contentDescription = stringResource(R.string.search),
@@ -706,6 +719,9 @@ private fun AppRoot(
                             books = books,
                             shelfLayout = shelfLayout,
                             selectedBookIds = selectedBookIds,
+                            searchActive = showSearch,
+                            searchQuery = searchQuery,
+                            onSearchQueryChange = { searchQuery = it },
                             scrollToTopSignal = scrollToTopSignal,
                             scrollToTopAnimatedSignal = scrollToTopAnimatedSignal,
                             onToggleSelect = { book ->
@@ -718,6 +734,13 @@ private fun AppRoot(
                                 // 先查源文件可读性:被外部删除/不可读时书架层弹框,不进阅读页
                                 appScope.launch {
                                     if (bookRepo.isReadable(book)) {
+                                        // 搜索中开书=已找到目标:与收起同逻辑(收框+清词+收键盘),
+                                        // 回到书架即完整书架(此前保留搜索状态的方案被此交互取代)
+                                        if (showSearch) {
+                                            showSearch = false
+                                            searchQuery = ""
+                                            keyboard?.hide()
+                                        }
                                         // 打开阅读页覆盖层;快速连点置同一本书是幂等 no-op(无栈可叠)
                                         readerBookId = book.id
                                     } else {
@@ -778,6 +801,14 @@ private fun AppRoot(
                         )
                     }
                 }
+            }
+
+            // 搜索展开时返回键收起搜索(而非退出应用);声明在选择模式之前,选择优先退出。
+            // 仅书架 tab 生效:设置页按返回仍应切回书架,不能被搜索状态截走
+            BackHandler(enabled = showSearch && selectedSection == AppSections.Shelf) {
+                showSearch = false
+                searchQuery = ""
+                keyboard?.hide()
             }
 
             // 选择模式下返回键退出选择,而非退出应用
@@ -927,26 +958,6 @@ private fun AppRoot(
                             Text(text = stringResource(R.string.shelf_sync_removal_hint_ok))
                         }
                     },
-                )
-            }
-            // 搜索页覆盖层:书架顶栏搜索按钮进入;点结果关搜索、进阅读页。声明在阅读页之前 =>
-            // 阅读页 z 更高,搜索点结果时阅读页直接覆盖搜索页,不闪回书架(与阅读页覆盖层同模式)
-            AnimatedVisibility(
-                visible = showSearch,
-                modifier = Modifier.fillMaxSize(),
-                enter = fadeIn(tween(AnimationTokens.XL)) +
-                    slideInHorizontally(tween(AnimationTokens.XL)) { it / 16 },
-                exit = fadeOut(tween(AnimationTokens.XL)) +
-                    slideOutHorizontally(tween(AnimationTokens.XL)) { it / 16 },
-            ) {
-                SearchScreen(
-                    books = books.orEmpty(),
-                    onSelectBook = { book ->
-                        // 不关搜索页:阅读页直接覆盖,淡入透出的是搜索页而非书架(避免漏书架);
-                        // 阅读页关闭时再一并关搜索回书架(见 ReaderScreen onClose)
-                        readerBookId = book.id
-                    },
-                    onBack = { showSearch = false },
                 )
             }
             // 阅读页覆盖层:最后渲染叠在最上;main 保持存活,退出不重组(与目录覆盖层同模式)

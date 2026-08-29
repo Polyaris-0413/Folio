@@ -10,7 +10,10 @@ import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
+import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -38,6 +41,7 @@ import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -46,9 +50,12 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
@@ -69,7 +76,8 @@ import com.folio.read.ui.components.renderCoverBitmap
 import com.folio.read.ui.theme.AnimationTokens
 
 /**
- * 书架页:封面网格,无书时显示空态引导;列数由书架排版设置决定 */
+ * 书架页:顶栏下方内联搜索框(展开时按书名实时过滤)+ 封面网格,无书时显示空态引导;
+ * 列数由书架排版设置决定 */
 @Composable
 fun ShelfScreen(
     /** null=书库查询中(启动首帧),不显示空态占位符(有书时避免闪几帧占位);empty=确实无书 */
@@ -77,6 +85,10 @@ fun ShelfScreen(
     shelfLayout: ShelfLayout,
     /** 选择模式(长按进入):选中的书 id 集合,非空时点击卡片=切换选中、顶栏显示删除 */
     selectedBookIds: Set<Long>,
+    /** 搜索框展开(顶栏搜索图标切换);展开且有关键词时网格只显示匹配的书 */
+    searchActive: Boolean,
+    searchQuery: String,
+    onSearchQueryChange: (String) -> Unit,
     /** 读过书返回书架时 +1,触发滚回顶部(刚读的书已置顶第 1 位,让用户直接看到) */
     scrollToTopSignal: Int = 0,
     scrollToTopAnimatedSignal: Int = 0,
@@ -87,81 +99,129 @@ fun ShelfScreen(
 ) {
     // 显式滚动状态:读过书返回时滚回顶部(见下方 LaunchedEffect),切 tab 不触发保持位置
     val gridState = rememberLazyGridState()
-    Box(
+    // 搜索中=展开且有关键词;空关键词时网格照常显示全部(过滤只在有关键词时生效)
+    val searching = searchActive && searchQuery.isNotBlank()
+    Column(
         modifier = modifier
             .fillMaxSize()
             .background(MaterialTheme.colorScheme.background),
     ) {
-        if (books == null) {
-            // 加载中:空白等待查询结果,不渲染空态(空态仅确认真无书时显示)
-        } else {
-            // 网格列数:单列/自适应(空列表也渲染网格:删除最后一本时 item 退出动画
-            // 依赖网格常驻,切到空态分支会让整格移出、动画直接消失)
-            val columns = when (shelfLayout.mode) {
-                ShelfLayoutMode.ONE -> GridCells.Fixed(1)
-                // 自适应:单元格最小 152dp,保证封面与两行书名有足够宽度,避免列数过多文字被截断
-                ShelfLayoutMode.ADAPTIVE -> GridCells.Adaptive(minSize = 152.dp)
-            }
-            // 读过书返回/自动同步新增书:平滑滚顶到 item 0。
-            // 曾用 scrollToItem(0)(瞬移):会打断 books 重排的 placement 位移动画,
-            // 书多时书本从原位置滑到第一位的过程被瞬移掩盖(用户反馈「位移动画只有书少才可见」)。
-            LaunchedEffect(scrollToTopSignal, scrollToTopAnimatedSignal, books) {
-                if ((scrollToTopSignal > 0 || scrollToTopAnimatedSignal > 0) && books != null) {
-                    gridState.animateScrollToItem(0)
+        // 内联搜索框:顶栏下方下滑展开/上滑收起(expand/shrinkVertically 与图标开关配套)
+        AnimatedVisibility(
+            visible = searchActive,
+            enter = expandVertically(animationSpec = tween(AnimationTokens.Medium)) +
+                fadeIn(animationSpec = tween(AnimationTokens.Medium)),
+            exit = shrinkVertically(animationSpec = tween(AnimationTokens.Medium)) +
+                fadeOut(animationSpec = tween(AnimationTokens.Medium)),
+        ) {
+            // 展开即聚焦弹键盘(搜索页常规体验,省一步点击);LaunchedEffect 放在内容内,
+            // 保证字段已组合后 requestFocus 才生效
+            val focusRequester = remember { FocusRequester() }
+            LaunchedEffect(Unit) { focusRequester.requestFocus() }
+            OutlinedTextField(
+                value = searchQuery,
+                onValueChange = onSearchQueryChange,
+                placeholder = { Text(text = stringResource(R.string.search_hint)) },
+                singleLine = true,
+                // 圆角=corner-small 8dp(M3 文本字段规范 token,与重命名/搜索输入框统一)
+                // 留白:上方 16dp(=书架网格顶部内边距,三段间距统一:顶栏→搜索框=搜索框→书=顶栏→书),
+                // 下方 0(与书的间距由网格自身的 16dp 顶边距提供,收起/展开时网格不跳动)
+                shape = RoundedCornerShape(8.dp),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(start = 16.dp, end = 16.dp, top = 16.dp)
+                    .focusRequester(focusRequester),
+            )
+        }
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(MaterialTheme.colorScheme.background),
+        ) {
+            if (books == null) {
+                // 加载中:空白等待查询结果,不渲染空态(空态仅确认真无书时显示)
+            } else {
+                // 网格列数:单列/自适应(空列表也渲染网格:删除最后一本时 item 退出动画
+                // 依赖网格常驻,切到空态分支会让整格移出、动画直接消失)
+                val columns = when (shelfLayout.mode) {
+                    ShelfLayoutMode.ONE -> GridCells.Fixed(1)
+                    // 自适应:单元格最小 152dp,保证封面与两行书名有足够宽度,避免列数过多文字被截断
+                    ShelfLayoutMode.ADAPTIVE -> GridCells.Adaptive(minSize = 152.dp)
                 }
-            }
-            LazyVerticalGrid(
-                columns = columns,
-                state = gridState,
-                modifier = Modifier.fillMaxSize(),
-                contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 16.dp, bottom = 16.dp),
-                horizontalArrangement = Arrangement.spacedBy(12.dp),
-                verticalArrangement = Arrangement.spacedBy(16.dp),
-            ) {
-                items(books, key = { it.id }) { book ->
-                    val selected = book.id in selectedBookIds
-                    // 加入/移除淡入淡出(净化改名/移出书架时位置变化由 placement 动画接管)
-                    val itemAnim = Modifier.animateItem(
-                        fadeInSpec = tween(AnimationTokens.Medium),
-                        fadeOutSpec = tween(AnimationTokens.Medium),
-                    )
-                    // 选择模式下点击=切换选中,否则打开书;长按一律切换选中
-                    val onClick = {
-                        if (selectedBookIds.isNotEmpty()) onToggleSelect(book) else onOpenBook(book)
-                    }
-                    val onLongClick = { onToggleSelect(book) }
-                    if (shelfLayout.mode == ShelfLayoutMode.ONE) {
-                        BookRowCard(book, selected, onClick, onLongClick, modifier = itemAnim)
-                    } else {
-                        BookCard(book, selected, onClick, onLongClick, modifier = itemAnim)
+                // 当前结果集(按书名过滤,忽略大小写)
+                val displayBooks = if (searching) {
+                    books.filter { it.title.contains(searchQuery, ignoreCase = true) }
+                } else {
+                    books
+                }
+                // 读过书返回/自动同步新增书:平滑滚顶到 item 0。
+                // 曾用 scrollToItem(0)(瞬移):会打断 books 重排的 placement 位移动画,
+                // 书多时书本从原位置滑到第一位的过程被瞬移掩盖(用户反馈「位移动画只有书少才可见」)。
+                LaunchedEffect(scrollToTopSignal, scrollToTopAnimatedSignal, books) {
+                    if ((scrollToTopSignal > 0 || scrollToTopAnimatedSignal > 0) && books != null) {
+                        gridState.animateScrollToItem(0)
                     }
                 }
-            }
-            // 空态 overlay:网格常驻保证删除动画可播,空态浮层淡入(与删书淡出重叠,过渡顺滑)
-            // 内容自包居中 Box(AnimatedVisibility 内容不在 BoxScope,Modifier.align 不生效)
-            if (books.isEmpty()) {
-                AnimatedVisibility(
-                    visible = true,
-                    enter = fadeIn(animationSpec = tween(AnimationTokens.Medium)),
+                LazyVerticalGrid(
+                    columns = columns,
+                    state = gridState,
+                    modifier = Modifier.fillMaxSize(),
+                    contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 16.dp, bottom = 16.dp),
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    verticalArrangement = Arrangement.spacedBy(16.dp),
                 ) {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .wrapContentSize(Alignment.Center),
+                    items(displayBooks, key = { it.id }) { book ->
+                        val selected = book.id in selectedBookIds
+                        // 加入/移除淡入淡出 + 默认 spring 位移动画(位置重排由框架接管)
+                        val itemAnim = Modifier.animateItem(
+                            fadeInSpec = tween(AnimationTokens.Medium),
+                            fadeOutSpec = tween(AnimationTokens.Medium),
+                        )
+                        // 选择模式下点击=切换选中,否则打开书;长按一律切换选中
+                        val onClick = {
+                            if (selectedBookIds.isNotEmpty()) onToggleSelect(book) else onOpenBook(book)
+                        }
+                        val onLongClick = { onToggleSelect(book) }
+                        if (shelfLayout.mode == ShelfLayoutMode.ONE) {
+                            BookRowCard(book, selected, onClick, onLongClick, modifier = itemAnim)
+                        } else {
+                            BookCard(book, selected, onClick, onLongClick, modifier = itemAnim)
+                        }
+                    }
+                }
+                // 空态 overlay:网格常驻保证删除动画可播,空态浮层淡入(与删书淡出重叠,过渡顺滑)
+                // 内容自包居中 Box(AnimatedVisibility 内容不在 BoxScope,Modifier.align 不生效)
+                if (displayBooks.isEmpty()) {
+                    // 顶层函数全限定调用:此处处于 Column 作用域内,简写会被解析成
+                    // ColumnScope.AnimatedVisibility 扩展而报歧义
+                    androidx.compose.animation.AnimatedVisibility(
+                        visible = true,
+                        enter = fadeIn(animationSpec = tween(AnimationTokens.Medium)),
                     ) {
-                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                            Icon(
-                                painter = painterResource(R.drawable.ic_book),
-                                contentDescription = null,
-                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                                modifier = Modifier.size(96.dp),
-                            )
-                            Spacer(modifier = Modifier.height(16.dp))
-                            Text(
-                                text = stringResource(R.string.shelf_empty_title),
-                                style = MaterialTheme.typography.titleMedium,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            )
+                        Box(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .wrapContentSize(Alignment.Center),
+                        ) {
+                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                // 搜索无匹配=放大镜+「没有找到相关书籍」;真无书=书+引导文案
+                                Icon(
+                                    painter = painterResource(
+                                        if (searching) R.drawable.ic_search else R.drawable.ic_book,
+                                    ),
+                                    contentDescription = null,
+                                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    modifier = Modifier.size(96.dp),
+                                )
+                                Spacer(modifier = Modifier.height(16.dp))
+                                Text(
+                                    text = stringResource(
+                                        if (searching) R.string.search_empty else R.string.shelf_empty_title,
+                                    ),
+                                    style = MaterialTheme.typography.titleMedium,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            }
                         }
                     }
                 }
