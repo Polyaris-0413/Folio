@@ -2,7 +2,7 @@
   <img src="https://github.com/user-attachments/assets/d628884c-9571-40ab-8fc9-bfa1f04c38a7" width="112" alt="拾页 Folio 图标" />
 </p>
 
-<h2 align="center">拾页 Folio</h1>
+<h1 align="center">拾页 Folio</h1>
 
 <p align="center">一款注重细节的本地阅读器</p>
 
