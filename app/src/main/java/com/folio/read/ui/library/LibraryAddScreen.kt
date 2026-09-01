@@ -59,9 +59,11 @@ import com.folio.read.data.TitleCleanSettings
 import com.folio.read.data.TitleCleanSettingsRepository
 import com.folio.read.ui.components.bookCoverGradient
 import com.folio.read.ui.theme.AnimationTokens
+import java.util.Locale
 import kotlin.math.min
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -72,7 +74,7 @@ import kotlinx.coroutines.withContext
  * 列表组合时纯读取——迷你封面渐变(HCT 色彩计算)与书名净化在组合帧内逐项计算
  * 会拖慢切进书架页的首帧(实测 +~15ms),预烘焙后组合零计算
  */
-private data class FileRow(
+internal data class FileRow(
     val file: LibraryFile,
     val uri: String,
     val format: String,
@@ -80,6 +82,75 @@ private data class FileRow(
     val gradient: List<Color>,
     val cleanName: String,
 )
+
+/**
+ * 书架候选清单的进程级缓存:tab 切换销毁页面组合,清单留在记忆里。
+ * 再进页直接渲染旧清单(秒显,刷新不清空),后台重扫完成后整表原子替换
+ * (book-story 同款机制;目录变更时作废)。rows 走 mutableStateOf 保证跨线程可见性。
+ * 扫描协程挂自建常驻 scope(不随页面组合销毁):应用启动即可预热扫描,
+ * 用户进页前后台扫描通常已完成——book-story 的 viewModelScope 同款行为
+ */
+internal object LibraryBrowserCache {
+    var dir: String? = null
+    var rows by mutableStateOf<List<FileRow>?>(null)
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+    private var scanJob: Job? = null
+    private var lastScanAt = 0L
+
+    // 进页触发与启动预热/上轮重扫的去重窗口(与 MainActivity 的 AUTO_SYNC_THROTTLE_MS 同思路)
+    private const val RESCAN_THROTTLE_MS = 10_000L
+
+    /**
+     * 确保缓存与目录同步。
+     * @param force 强制重扫(添加书后刷新候选);false 时若扫描已在进行则跳过(启动预热与进页触发的去重)
+     */
+    fun ensureScanned(repo: LibraryRepository, dir: String, force: Boolean = false) {
+        if (this.dir != dir) {
+            // 目录变更:旧目录缓存作废,重新走首次加载路径
+            this.dir = dir
+            rows = null
+            lastScanAt = 0L
+        }
+        if (scanJob?.isActive == true) {
+            if (!force) return
+            scanJob?.cancel()
+        }
+        // 节流:缓存就绪且刚扫描过时,进页触发不再重复扫描——重扫的预烘焙计算会与
+        // 进页首帧组合抢核加重卡顿(冷启动预热后立即进页实测大帧 141ms;book-story
+        // 每次进页都重扫无感是因其 release 组合便宜,debug 下必须节流)
+        if (!force && rows != null && SystemClock.uptimeMillis() - lastScanAt < RESCAN_THROTTLE_MS) return
+        scanJob = scope.launch {
+            val fresh = scanAndBake(repo, dir)
+            lastScanAt = SystemClock.uptimeMillis()
+            // 整表原子替换:FileRow 是 data class,内容未变的条目 equals 相同被 LazyColumn 跳过,
+            // 无重组成本;替换发生在切进页面的组合帧之后,不在动画关键路径上
+            rows = fresh
+        }
+    }
+}
+
+/** 扫描+预烘焙展示模型(后台线程):缓存刷新、首次加载与启动预热共用 */
+private suspend fun scanAndBake(repo: LibraryRepository, dir: String): List<FileRow> = withContext(Dispatchers.IO) {
+    // debug:进页掉帧定位(扫描耗时/候选数/就绪时机);Log.w 因部分 ROM(ColorOS)丢弃 debug 级日志
+    val t0 = SystemClock.uptimeMillis()
+    Log.w("FolioLibrary", "scan start at $t0")
+    val result = repo.scanLibrary(dir)
+    Log.w("FolioLibrary", "scan done n=${result.size} dt=${SystemClock.uptimeMillis() - t0}ms")
+    // 展示模型后台预烘焙:渐变(HCT)/净化/大小格式化移出组合帧
+    result.map { f ->
+        val uri = f.uri.toString()
+        val cleanName = BookTitleParser.parse(f.name)
+            .ifBlank { f.name.substringBeforeLast('.').ifBlank { f.name } }
+        FileRow(
+            file = f,
+            uri = uri,
+            format = f.name.substringAfterLast('.').uppercase(),
+            sizeLabel = formatFileSize(f.size),
+            gradient = bookCoverGradient(uri),
+            cleanName = cleanName,
+        )
+    }
+}
 
 /**
  * 书架页(底部 TAB):扫描已选书库目录下的文件,勾选后批量加入书架。
@@ -94,7 +165,6 @@ fun LibraryAddScreen(
     val context = LocalContext.current
     val libraryRepo = remember { LibraryRepository(context.applicationContext) }
     val bookRepo = remember { BookRepository(context.applicationContext) }
-    var candidates by remember { mutableStateOf<List<FileRow>?>(null) } // null = 扫描中
     var selected by remember { mutableStateOf<Set<String>>(emptySet()) }
     // 添加成功或目录变更后重扫:新加入的书移出候选,列表始终是「未加入」的候选
     var scanKey by remember { mutableIntStateOf(0) }
@@ -111,44 +181,24 @@ fun LibraryAddScreen(
     }
     val cleanScope = remember { CoroutineScope(SupervisorJob() + Dispatchers.IO) }
 
-    // 扫描书架目录下的文件(复用 LibraryRepository.scanLibrary;IO 线程,避免大目录卡 UI);
-    // 直接传目录,不依赖 DataStore 异步读取(与 MainActivity 的 forceDir 同理)
+    // 进页触发缓存同步(无缓存/换目录才扫;已在后台扫则跳过);添加书后 scanKey 强制重扫换新候选
     LaunchedEffect(libraryDir, scanKey) {
-        val dir = libraryDir ?: return@LaunchedEffect
-        candidates = null
-        // debug:进页掉帧定位(扫描耗时/候选数/就绪时机);Log.w 因部分 ROM(ColorOS)丢弃 debug 级日志
-        val t0 = SystemClock.uptimeMillis()
-        Log.w("FolioLibrary", "scan start at $t0")
-        val result = libraryRepo.scanLibrary(dir)
-        Log.w("FolioLibrary", "scan done n=${result.size} dt=${SystemClock.uptimeMillis() - t0}ms")
-        // 展示模型后台预烘焙:渐变(HCT)/净化/大小格式化移出组合帧
-        val rows = withContext(Dispatchers.Default) {
-            result.map { f ->
-                val uri = f.uri.toString()
-                val cleanName = BookTitleParser.parse(f.name)
-                    .ifBlank { f.name.substringBeforeLast('.').ifBlank { f.name } }
-                FileRow(
-                    file = f,
-                    uri = uri,
-                    format = f.name.substringAfterLast('.').uppercase(),
-                    sizeLabel = formatFileSize(f.size),
-                    gradient = bookCoverGradient(uri),
-                    cleanName = cleanName,
-                )
-            }
-        }
-        // 分批展示:一次性组合全部候选会冻结主线程一帧(实测 10 项 ~124ms),
-        // 分批插入每帧只组合 2-3 项,列表渐进出现无冻结(曾试遮罩掩盖,淡出动画帧反而更卡,弃)
-        val step = 3
-        var shown = 0
-        while (shown < rows.size) {
-            shown = min(shown + step, rows.size)
-            candidates = rows.take(shown)
-            if (shown < rows.size) delay(16) // 16=60Hz 一帧,让出整帧再插下一批,避免同帧连续组合
+        if (libraryDir != null) {
+            LibraryBrowserCache.ensureScanned(libraryRepo, libraryDir, force = scanKey > 0)
         }
     }
 
-    val list = candidates
+    // 进页分批组合:切进页面第一帧若一次组合可见区全部条目实测冻结 120-155ms(debug),
+    // 先组合前 4 项、后台逐帧补齐,配合条目淡入呈现列表浮现动效
+    var shownCount by remember { mutableIntStateOf(4) }
+    LaunchedEffect(LibraryBrowserCache.rows) {
+        val total = LibraryBrowserCache.rows?.size ?: return@LaunchedEffect
+        while (shownCount < total) {
+            shownCount = min(shownCount + 4, total)
+            delay(16)
+        }
+    }
+    val list = LibraryBrowserCache.rows?.take(shownCount)
     Box(
         modifier = modifier
             .fillMaxSize()
@@ -356,10 +406,10 @@ fun LibraryAddScreen(
     }
 }
 
-/** 字节数 → 人读大小(1024 进制,GB/MB 一位小数、KB 取整、字节原样) */
+/** 字节数 → 人读大小(1024 进制,GB/MB 一位小数、KB 取整、字节原样);Locale.ROOT 固定小数点,不随系统语言变逗号 */
 private fun formatFileSize(bytes: Long): String = when {
-    bytes >= 1L shl 30 -> "%.1f GB".format(bytes / (1024f * 1024f * 1024f))
-    bytes >= 1L shl 20 -> "%.1f MB".format(bytes / (1024f * 1024f))
-    bytes >= 1L shl 10 -> "%.0f KB".format(bytes / 1024f)
+    bytes >= 1L shl 30 -> "%.1f".format(Locale.ROOT, bytes / (1024f * 1024f * 1024f)) + " GB"
+    bytes >= 1L shl 20 -> "%.1f".format(Locale.ROOT, bytes / (1024f * 1024f)) + " MB"
+    bytes >= 1L shl 10 -> "%.0f".format(Locale.ROOT, bytes / 1024f) + " KB"
     else -> "$bytes B"
 }

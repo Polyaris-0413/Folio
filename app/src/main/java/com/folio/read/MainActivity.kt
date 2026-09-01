@@ -126,6 +126,7 @@ import com.folio.read.ui.components.groupItemShape
 import com.folio.read.ui.components.groupItemSpacing
 import com.folio.read.ui.components.listItemColors
 import com.folio.read.ui.library.LibraryAddScreen
+import com.folio.read.ui.library.LibraryBrowserCache
 import com.folio.read.ui.licenses.LicensesScreen
 import com.folio.read.ui.navigation.AppRoutes
 import com.folio.read.ui.navigation.AppSections
@@ -360,6 +361,13 @@ private fun AppRoot(
     // 书库目录(扫描来源)
     val libraryRepo = remember { LibraryRepository(context.applicationContext) }
     val libraryDir by libraryRepo.libraryDir.collectAsState(initial = null)
+
+    // 启动预热:书库目录就绪即后台扫描候选清单,用户进书架页时缓存通常已就绪
+    // (重启后首进不再干等;book-story 靠预创建 ViewModel 的 init 达到同样效果)
+    LaunchedEffect(libraryDir) {
+        val dir = libraryDir ?: return@LaunchedEffect
+        LibraryBrowserCache.ensureScanned(libraryRepo, dir)
+    }
 
     // 自动同步书架:开关开且已选书架目录 → 启动时扫描并加入(去重自动跳过,净化同手动添加)
     val shelfSyncRepo = remember { ShelfSyncSettingsRepository(context.applicationContext) }
