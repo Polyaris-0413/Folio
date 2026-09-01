@@ -39,7 +39,8 @@ class LibraryRepository(context: Context) {
         return withContext(Dispatchers.IO) {
             DocumentFile.fromTreeUri(appContext, Uri.parse(target))?.listFiles()
                 ?.filter { it.isFile && it.name?.let { n ->
-                    n.endsWith(".txt", true) || n.endsWith(".epub", true) || n.endsWith(".azw3", true)
+                    n.endsWith(".txt", true) || n.endsWith(".epub", true) || n.endsWith(".azw3", true) ||
+                        n.endsWith(".mobi", true)
                 } == true }
                 ?.map { it.uri to (it.name ?: "") }
                 ?: emptyList()
