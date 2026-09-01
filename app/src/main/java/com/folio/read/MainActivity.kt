@@ -417,9 +417,9 @@ private fun AppRoot(
                 // 已移除的书(手动删除过)自动同步不再加回;手动添加会清除该记录
                 // 传 dir 给 scanLibrary:forceDir 场景(选目录后立即同步)不依赖 DataStore 异步写入
                 var added = 0
-                libraryRepo.scanLibrary(dir).forEach { (uri, _) ->
-                    if (bookRepo.isRemoved(uri)) return@forEach
-                    val book = bookRepo.addBook(uri)
+                libraryRepo.scanLibrary(dir).forEach { file ->
+                    if (bookRepo.isRemoved(file.uri)) return@forEach
+                    val book = bookRepo.addBook(file.uri)
                     if (book != null) {
                         added++
                         if (titleCleaner != null) {

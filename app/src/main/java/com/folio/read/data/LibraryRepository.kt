@@ -6,6 +6,7 @@ import android.net.Uri
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import androidx.documentfile.provider.DocumentFile
+import com.folio.read.R
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
@@ -13,7 +14,10 @@ import kotlinx.coroutines.withContext
 
 private val Context.libraryDataStore by preferencesDataStore(name = "library_settings")
 
-/** 书库目录管理:登记要扫描的文件夹(SAF tree URI),供"书库添加"与自动同步使用 */
+/** 书库候选文件:SAF document URI + 文件名 + 大小(字节),供书架页条目与批量添加使用 */
+data class LibraryFile(val uri: Uri, val name: String, val size: Long)
+
+/** 书库目录管理:登记要扫描的文件夹(SAF tree URI),供"书架添加"与自动同步使用 */
 class LibraryRepository(context: Context) {
 
     private val store = PrefsStore(context.libraryDataStore)
@@ -32,9 +36,9 @@ class LibraryRepository(context: Context) {
         store.set(KEY_LIBRARY_DIR, uri.toString())
     }
 
-    /** 扫描书架目录下的 txt 文件(一层);返回 (uri, 文件名) 列表。书库添加页与自动同步共用。
+    /** 扫描书架目录下的 txt 文件(一层);书库添加页与自动同步共用。
      * @param dir 显式指定目录 URI(选目录后立即同步用,不依赖 DataStore 异步写入竞态);null 时读持久化目录 */
-    suspend fun scanLibrary(dir: String? = null): List<Pair<Uri, String>> {
+    suspend fun scanLibrary(dir: String? = null): List<LibraryFile> {
         val target = dir ?: libraryDir.first() ?: return emptyList()
         return withContext(Dispatchers.IO) {
             DocumentFile.fromTreeUri(appContext, Uri.parse(target))?.listFiles()
@@ -42,7 +46,13 @@ class LibraryRepository(context: Context) {
                     n.endsWith(".txt", true) || n.endsWith(".epub", true) || n.endsWith(".azw3", true) ||
                         n.endsWith(".mobi", true)
                 } == true }
-                ?.map { it.uri to (it.name ?: "") }
+                ?.map {
+                    LibraryFile(
+                        uri = it.uri,
+                        name = it.name?.ifBlank { appContext.getString(R.string.unnamed) } ?: "",
+                        size = it.length(),
+                    )
+                }
                 ?: emptyList()
         }
     }

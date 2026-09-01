@@ -7,6 +7,7 @@ import android.widget.Toast
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -16,11 +17,13 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.Checkbox
+import androidx.compose.material3.Icon
 import androidx.compose.material3.ListItem
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -36,8 +39,12 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.folio.read.R
 import com.folio.read.data.AiConfig
@@ -45,9 +52,12 @@ import com.folio.read.data.AiSettingsRepository
 import com.folio.read.data.Book
 import com.folio.read.data.BookRepository
 import com.folio.read.data.BookTitleCleaner
+import com.folio.read.data.BookTitleParser
+import com.folio.read.data.LibraryFile
 import com.folio.read.data.LibraryRepository
 import com.folio.read.data.TitleCleanSettings
 import com.folio.read.data.TitleCleanSettingsRepository
+import com.folio.read.ui.components.bookCoverGradient
 import com.folio.read.ui.theme.AnimationTokens
 import kotlin.math.min
 import kotlinx.coroutines.CoroutineScope
@@ -57,8 +67,19 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
-/** 扫描结果候选:SAF document URI + 文件名 */
-private data class FileCandidate(val uri: Uri, val name: String)
+/**
+ * 条目展示模型:渐变/净化书名/格式化大小在扫描阶段(后台线程)预烘焙完成,
+ * 列表组合时纯读取——迷你封面渐变(HCT 色彩计算)与书名净化在组合帧内逐项计算
+ * 会拖慢切进书架页的首帧(实测 +~15ms),预烘焙后组合零计算
+ */
+private data class FileRow(
+    val file: LibraryFile,
+    val uri: String,
+    val format: String,
+    val sizeLabel: String,
+    val gradient: List<Color>,
+    val cleanName: String,
+)
 
 /**
  * 书架页(底部 TAB):扫描已选书库目录下的文件,勾选后批量加入书架。
@@ -73,7 +94,7 @@ fun LibraryAddScreen(
     val context = LocalContext.current
     val libraryRepo = remember { LibraryRepository(context.applicationContext) }
     val bookRepo = remember { BookRepository(context.applicationContext) }
-    var candidates by remember { mutableStateOf<List<FileCandidate>?>(null) } // null = 扫描中
+    var candidates by remember { mutableStateOf<List<FileRow>?>(null) } // null = 扫描中
     var selected by remember { mutableStateOf<Set<String>>(emptySet()) }
     // 添加成功或目录变更后重扫:新加入的书移出候选,列表始终是「未加入」的候选
     var scanKey by remember { mutableIntStateOf(0) }
@@ -98,20 +119,32 @@ fun LibraryAddScreen(
         // debug:进页掉帧定位(扫描耗时/候选数/就绪时机);Log.w 因部分 ROM(ColorOS)丢弃 debug 级日志
         val t0 = SystemClock.uptimeMillis()
         Log.w("FolioLibrary", "scan start at $t0")
-        val result = withContext(Dispatchers.IO) {
-            libraryRepo.scanLibrary(dir).map { (uri, name) ->
-                FileCandidate(uri, name.ifBlank { context.getString(R.string.unnamed) })
+        val result = libraryRepo.scanLibrary(dir)
+        Log.w("FolioLibrary", "scan done n=${result.size} dt=${SystemClock.uptimeMillis() - t0}ms")
+        // 展示模型后台预烘焙:渐变(HCT)/净化/大小格式化移出组合帧
+        val rows = withContext(Dispatchers.Default) {
+            result.map { f ->
+                val uri = f.uri.toString()
+                val cleanName = BookTitleParser.parse(f.name)
+                    .ifBlank { f.name.substringBeforeLast('.').ifBlank { f.name } }
+                FileRow(
+                    file = f,
+                    uri = uri,
+                    format = f.name.substringAfterLast('.').uppercase(),
+                    sizeLabel = formatFileSize(f.size),
+                    gradient = bookCoverGradient(uri),
+                    cleanName = cleanName,
+                )
             }
         }
-        Log.w("FolioLibrary", "scan done n=${result.size} dt=${SystemClock.uptimeMillis() - t0}ms")
         // 分批展示:一次性组合全部候选会冻结主线程一帧(实测 10 项 ~124ms),
         // 分批插入每帧只组合 2-3 项,列表渐进出现无冻结(曾试遮罩掩盖,淡出动画帧反而更卡,弃)
         val step = 3
         var shown = 0
-        while (shown < result.size) {
-            shown = min(shown + step, result.size)
-            candidates = result.take(shown)
-            if (shown < result.size) delay(16) // 16=60Hz 一帧,让出整帧再插下一批,避免同帧连续组合
+        while (shown < rows.size) {
+            shown = min(shown + step, rows.size)
+            candidates = rows.take(shown)
+            if (shown < rows.size) delay(16) // 16=60Hz 一帧,让出整帧再插下一批,避免同帧连续组合
         }
     }
 
@@ -154,18 +187,72 @@ fun LibraryAddScreen(
                                     .padding(24.dp),
                             )
                         }
-                        else -> items(list) { candidate ->
-                            val uri = candidate.uri.toString()
-                            val isChecked = uri in selected
+                        else -> items(list, key = { it.uri }) { row ->
+                            val isChecked = row.uri in selected
                             ListItem(
-                                headlineContent = { Text(text = candidate.name) },
-                                trailingContent = {
-                                    Checkbox(
-                                        checked = isChecked,
-                                        onCheckedChange = { checked ->
-                                            selected = if (checked) selected + uri else selected - uri
-                                        },
+                                leadingContent = {
+                                    // 迷你封面:与阅读 TAB 封面同源哈希渐变(种子=文件 URI,同一文件
+                                    // 添加前后颜色一致),用户在此页看到的颜色即将来封面颜色
+                                    Box(
+                                        modifier = Modifier
+                                            .size(width = 44.dp, height = 60.dp)
+                                            .background(
+                                                brush = Brush.verticalGradient(row.gradient),
+                                                shape = MaterialTheme.shapes.extraSmall,
+                                            ),
+                                        contentAlignment = Alignment.Center,
+                                    ) {
+                                        Text(
+                                            text = row.format,
+                                            style = MaterialTheme.typography.labelSmall,
+                                            // 渐变色深浅随哈希变化,固定白字与阅读 TAB 封面同款
+                                            color = Color.White,
+                                        )
+                                    }
+                                },
+                                headlineContent = {
+                                    Text(
+                                        text = row.cleanName,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis,
                                     )
+                                },
+                                supportingContent = {
+                                    Text(text = "${row.format} · ${row.sizeLabel}")
+                                },
+                                trailingContent = {
+                                    // 选中指示:整行点击切换(M3 多选惯例),色彩态替代常驻 Checkbox
+                                    Box(
+                                        modifier = Modifier
+                                            .size(22.dp)
+                                            .border(
+                                                width = 2.dp,
+                                                color = if (isChecked) {
+                                                    MaterialTheme.colorScheme.primary
+                                                } else {
+                                                    MaterialTheme.colorScheme.outlineVariant
+                                                },
+                                                shape = CircleShape,
+                                            )
+                                            .background(
+                                                color = if (isChecked) {
+                                                    MaterialTheme.colorScheme.primary
+                                                } else {
+                                                    Color.Transparent
+                                                },
+                                                shape = CircleShape,
+                                            ),
+                                        contentAlignment = Alignment.Center,
+                                    ) {
+                                        if (isChecked) {
+                                            Icon(
+                                                painter = painterResource(R.drawable.ic_check),
+                                                contentDescription = null,
+                                                tint = MaterialTheme.colorScheme.onPrimary,
+                                                modifier = Modifier.size(14.dp),
+                                            )
+                                        }
+                                    }
                                 },
                                 // 分批插入的 item 出现时淡入(此前逐批闪现无动画,2026-08-26 用户反馈影响观感)
                                 modifier = Modifier
@@ -174,7 +261,7 @@ fun LibraryAddScreen(
                                         fadeOutSpec = tween(AnimationTokens.Medium),
                                     )
                                     .clickable {
-                                        selected = if (isChecked) selected - uri else selected + uri
+                                        selected = if (isChecked) selected - row.uri else selected + row.uri
                                     },
                             )
                         }
@@ -267,4 +354,12 @@ fun LibraryAddScreen(
             }
         }
     }
+}
+
+/** 字节数 → 人读大小(1024 进制,GB/MB 一位小数、KB 取整、字节原样) */
+private fun formatFileSize(bytes: Long): String = when {
+    bytes >= 1L shl 30 -> "%.1f GB".format(bytes / (1024f * 1024f * 1024f))
+    bytes >= 1L shl 20 -> "%.1f MB".format(bytes / (1024f * 1024f))
+    bytes >= 1L shl 10 -> "%.0f KB".format(bytes / 1024f)
+    else -> "$bytes B"
 }
