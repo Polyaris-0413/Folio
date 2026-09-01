@@ -4,10 +4,13 @@ import android.net.Uri
 import android.os.SystemClock
 import android.util.Log
 import android.widget.Toast
-import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -20,12 +23,12 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.Icon
+import androidx.compose.material3.Checkbox
 import androidx.compose.material3.ListItem
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -42,7 +45,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -268,41 +270,16 @@ fun LibraryAddScreen(
                                     )
                                 },
                                 supportingContent = {
-                                    Text(text = "${row.format} · ${row.sizeLabel}")
+                                    // 格式已在迷你封面缩写中呈现,元数据行不再重复,只放大小
+                                    Text(text = row.sizeLabel)
                                 },
                                 trailingContent = {
-                                    // 选中指示:整行点击切换(M3 多选惯例),色彩态替代常驻 Checkbox
-                                    Box(
-                                        modifier = Modifier
-                                            .size(22.dp)
-                                            .border(
-                                                width = 2.dp,
-                                                color = if (isChecked) {
-                                                    MaterialTheme.colorScheme.primary
-                                                } else {
-                                                    MaterialTheme.colorScheme.outlineVariant
-                                                },
-                                                shape = CircleShape,
-                                            )
-                                            .background(
-                                                color = if (isChecked) {
-                                                    MaterialTheme.colorScheme.primary
-                                                } else {
-                                                    Color.Transparent
-                                                },
-                                                shape = CircleShape,
-                                            ),
-                                        contentAlignment = Alignment.Center,
-                                    ) {
-                                        if (isChecked) {
-                                            Icon(
-                                                painter = painterResource(R.drawable.ic_check),
-                                                contentDescription = null,
-                                                tint = MaterialTheme.colorScheme.onPrimary,
-                                                modifier = Modifier.size(14.dp),
-                                            )
-                                        }
-                                    }
+                                    // M3 原生 Checkbox 纯展示:点击落在整行(onCheckedChange=null
+                                    // 不可交互),选中状态经 Checkbox 语义导出(TalkBack 可读)
+                                    Checkbox(
+                                        checked = isChecked,
+                                        onCheckedChange = null,
+                                    )
                                 },
                                 // 分批插入的 item 出现时淡入(此前逐批闪现无动画,2026-08-26 用户反馈影响观感)
                                 modifier = Modifier
@@ -317,92 +294,83 @@ fun LibraryAddScreen(
                         }
                     }
                 }
-                if (list != null && list.isNotEmpty()) {
+                }
+            }
+
+            // 上下文操作条:勾选文件时浮出于 TAB 栏上方,无选中时完全隐藏(底部不与 TAB 拥挤)。
+            // 条只在有选中时可见,"添加选中"恒可用,无需禁用态
+            AnimatedVisibility(
+                visible = list != null && selected.isNotEmpty(),
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .padding(horizontal = 16.dp, vertical = 12.dp),
+                enter = fadeIn(tween(AnimationTokens.Medium)) +
+                    slideInVertically(tween(AnimationTokens.Medium)) { it },
+                exit = fadeOut(tween(AnimationTokens.Medium)) +
+                    slideOutVertically(tween(AnimationTokens.Medium)) { it },
+            ) {
+                Surface(
+                    // 浮动元素:最高档容器色与列表区分,large 圆角与 FAB 档阴影
+                    shape = MaterialTheme.shapes.large,
+                    color = MaterialTheme.colorScheme.surfaceContainerHighest,
+                    shadowElevation = 6.dp,
+                ) {
                     Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(horizontal = 16.dp, vertical = 8.dp),
+                        modifier = Modifier.padding(start = 16.dp, end = 8.dp, top = 4.dp, bottom = 4.dp),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
+                        Text(
+                            text = stringResource(R.string.library_selected_count, selected.size),
+                            style = MaterialTheme.typography.labelLarge,
+                            modifier = Modifier.weight(1f),
+                        )
                         TextButton(onClick = {
-                            selected = if (selected.size == list.size) {
+                            selected = if (selected.size == list!!.size) {
                                 emptySet()
                             } else {
-                                list.map { it.uri.toString() }.toSet()
+                                list.map { it.uri }.toSet()
                             }
                         }) {
                             Text(text = stringResource(R.string.library_select_all))
                         }
-                        Spacer(modifier = Modifier.weight(1f))
-                        // 按钮颜色过渡:M3 1.4.0 Button 对 enabled 颜色变化是瞬变(源码确认无 animateColorAsState),
-                        // 显式加容器/文字色过渡(未选中灰 → 选中主题色)
-                        val addEnabled = selected.isNotEmpty()
-                        val btnContainer by animateColorAsState(
-                            targetValue = if (addEnabled) {
-                                MaterialTheme.colorScheme.primary
-                            } else {
-                                MaterialTheme.colorScheme.onSurface.copy(alpha = 0.12f) // M3 禁用容器色
-                            },
-                            animationSpec = tween(AnimationTokens.Medium),
-                            label = "addBtnContainer",
-                        )
-                        val btnContent by animateColorAsState(
-                            targetValue = if (addEnabled) {
-                                MaterialTheme.colorScheme.onPrimary
-                            } else {
-                                MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f) // M3 禁用文字色
-                            },
-                            animationSpec = tween(AnimationTokens.Medium),
-                            label = "addBtnContent",
-                        )
-                        Button(
-                            enabled = addEnabled,
-                            colors = ButtonDefaults.buttonColors(
-                                containerColor = btnContainer,
-                                contentColor = btnContent,
-                                disabledContainerColor = btnContainer,
-                                disabledContentColor = btnContent,
-                            ),
-                            onClick = {
-                                scope.launch {
-                                    var skipped = 0
-                                    val toClean = mutableListOf<Book>()
-                                    withContext(Dispatchers.IO) {
-                                        selected.forEach { uri ->
-                                            // 重复文件由唯一索引自动跳过
-                                            val book = bookRepo.addBook(Uri.parse(uri))
-                                            if (book == null) {
-                                                skipped++
-                                            } else if (cleaner != null) {
-                                                toClean.add(book)
-                                            }
-                                        }
-                                    }
-                                    if (skipped > 0) {
-                                        Toast.makeText(
-                                            context,
-                                            context.getString(R.string.library_add_skipped, skipped),
-                                            Toast.LENGTH_SHORT,
-                                        ).show()
-                                    }
-                                    // TAB 化:添加后不返回,清空选中并重扫,新加入的书从候选消失
-                                    selected = emptySet()
-                                    scanKey++
-                                    // 书名净化后台跑,不阻塞列表刷新
-                                    toClean.forEach { book ->
-                                        cleanScope.launch {
-                                            cleaner?.let { bookRepo.aiCleanBook(book, it) }
+                        Button(onClick = {
+                            scope.launch {
+                                var skipped = 0
+                                val toClean = mutableListOf<Book>()
+                                withContext(Dispatchers.IO) {
+                                    selected.forEach { uri ->
+                                        // 重复文件由唯一索引自动跳过
+                                        val book = bookRepo.addBook(Uri.parse(uri))
+                                        if (book == null) {
+                                            skipped++
+                                        } else if (cleaner != null) {
+                                            toClean.add(book)
                                         }
                                     }
                                 }
-                            },
-                        ) {
+                                if (skipped > 0) {
+                                    Toast.makeText(
+                                        context,
+                                        context.getString(R.string.library_add_skipped, skipped),
+                                        Toast.LENGTH_SHORT,
+                                    ).show()
+                                }
+                                // TAB 化:添加后不返回,清空选中并重扫,新加入的书从候选消失
+                                selected = emptySet()
+                                scanKey++
+                                // 书名净化后台跑,不阻塞列表刷新
+                                toClean.forEach { book ->
+                                    cleanScope.launch {
+                                        cleaner?.let { bookRepo.aiCleanBook(book, it) }
+                                    }
+                                }
+                            }
+                        }) {
                             Text(text = stringResource(R.string.library_add_selected))
                         }
                     }
                 }
             }
-        }
     }
 }
 
