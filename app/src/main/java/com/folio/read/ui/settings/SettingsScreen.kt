@@ -1,9 +1,6 @@
 package com.folio.read.ui.settings
 
-import android.content.Intent
-import android.net.Uri
 import android.widget.Toast
-import androidx.annotation.DrawableRes
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
@@ -63,10 +60,8 @@ import com.folio.read.data.PageTurnMode
 import com.folio.read.data.PageTurnSettings
 import com.folio.read.data.ShelfLayout
 import com.folio.read.data.ShelfLayoutMode
-import com.folio.read.data.UpdateCheckResult
-import com.folio.read.data.UpdateChecker
-import com.folio.read.data.compareVersions
-import com.folio.read.ui.components.UpdateDialog
+import com.folio.read.ui.components.FolioTopBar
+import com.folio.read.ui.components.SettingsIcon
 import com.folio.read.ui.components.endItemShape
 import com.folio.read.ui.components.groupItemShape
 import com.folio.read.ui.components.groupItemSpacing
@@ -79,10 +74,6 @@ import kotlin.math.roundToInt
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
-
-/** Folio 的 GitHub 仓库地址 */
-private const val GITHUB_REPO_URL = "https://github.com/Polyaris-0413/Folio"
-private const val GITHUB_ISSUES_URL = "$GITHUB_REPO_URL/issues/new"
 
 /**
  * "系统主题"项的展开状态:展开进度与动画序列。
@@ -125,13 +116,13 @@ class ThemeItemExpandState(
  */
 @Composable
 fun SettingsScreen(
+    onBack: () -> Unit,
     expandState: ThemeItemExpandState,
     followSystemTheme: Boolean,
     manualDark: Boolean,
     onManualDarkChange: (Boolean) -> Unit,
     dynamicColor: Boolean,
     onDynamicColorChange: (Boolean) -> Unit,
-    onOpenLicenses: () -> Unit,
     libraryDirName: String?,
     onSelectLibrary: () -> Unit,
     shelfSync: Boolean,
@@ -151,51 +142,24 @@ fun SettingsScreen(
     var showPageTurnDialog by remember { mutableStateOf(false) }
     var showAiDialog by remember { mutableStateOf(false) }
 
-    // 检查更新:查 GitHub 最新 release,有新版本时弹窗;查询失败静默
-    val scope = rememberCoroutineScope()
-    val updateChecker = remember { UpdateChecker() }
-    var updateVersion by remember { mutableStateOf<String?>(null) }
-
-    fun checkUpdate() {
-        Toast.makeText(context, context.getString(R.string.update_checking), Toast.LENGTH_SHORT).show()
-        scope.launch {
-            when (val result = updateChecker.checkLatest()) {
-                is UpdateCheckResult.Latest -> {
-                    val latest = result.release
-                    val current = runCatching {
-                        context.packageManager.getPackageInfo(context.packageName, 0).versionName
-                    }.getOrNull() ?: "0"
-                    // 手动检查总提示;「不再提示」只抑制将来的自动检查(启动/定时),不影响主动查看
-                    if (compareVersions(latest.version, current) <= 0) {
-                        Toast.makeText(context, context.getString(R.string.update_latest), Toast.LENGTH_SHORT).show()
-                    } else {
-                        updateVersion = latest.version
-                    }
-                }
-                // 仓库尚无 release = 没有可更新的版本
-                UpdateCheckResult.NoRelease -> {
-                    Toast.makeText(context, context.getString(R.string.update_latest), Toast.LENGTH_SHORT).show()
-                }
-                UpdateCheckResult.Failed -> {
-                    Toast.makeText(context, context.getString(R.string.update_check_failed), Toast.LENGTH_SHORT).show()
-                }
-            }
-        }
-    }
-
     Box(
         modifier = modifier
             .fillMaxSize()
             .background(MaterialTheme.colorScheme.background),
-        contentAlignment = Alignment.TopCenter,
     ) {
-        LazyColumn(
-            modifier = Modifier
-                .fillMaxSize()
-                .widthIn(max = 600.dp),
-            contentPadding = PaddingValues(start = 12.dp, end = 12.dp, top = 16.dp, bottom = 16.dp),
-            verticalArrangement = Arrangement.spacedBy(16.dp),
+        Column(
+            modifier = Modifier.fillMaxSize(),
+            horizontalAlignment = Alignment.CenterHorizontally,
         ) {
+            FolioTopBar(titleRes = R.string.nav_settings, onBack = onBack)
+            LazyColumn(
+                modifier = Modifier
+                    .weight(1f)
+                    .fillMaxWidth()
+                    .widthIn(max = 600.dp),
+                contentPadding = PaddingValues(start = 12.dp, end = 12.dp, top = 16.dp, bottom = 16.dp),
+                verticalArrangement = Arrangement.spacedBy(16.dp),
+            ) {
             item {
                 Column {
                     // 分组标题:后续同类型设置项归入此组
@@ -257,6 +221,8 @@ fun SettingsScreen(
                                         Text(
                                             text = stringResource(R.string.settings_theme),
                                             style = MaterialTheme.typography.bodyLarge,
+                                            // 展开区不在 ListItem/Surface 内,须显式取主题色,否则裸 Text 用默认黑(深色模式不可见)
+                                            color = MaterialTheme.colorScheme.onSurface,
                                         )
                                     }
                                     Spacer(modifier = Modifier.height(12.dp))
@@ -427,101 +393,6 @@ fun SettingsScreen(
                 }
             }
         }
-        item {
-            Column(verticalArrangement = Arrangement.spacedBy(groupTitleSpacing)) {
-                Text(
-                    text = stringResource(R.string.settings_group_about),
-                    style = MaterialTheme.typography.labelLarge,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.padding(horizontal = 16.dp),
-                )
-                Column(verticalArrangement = Arrangement.spacedBy(groupItemSpacing)) {
-                    ListItem(
-                        headlineContent = { Text(text = stringResource(R.string.settings_about_update)) },
-                        leadingContent = { SettingsIcon(R.drawable.ic_settings_update) },
-                        trailingContent = {
-                            Icon(
-                                painter = painterResource(R.drawable.ic_arrow_right),
-                                contentDescription = null,
-                            )
-                        },
-                        colors = listItemColors(),
-                        modifier = Modifier
-                            .clip(groupItemShape(0, 5))
-                            .clickable { checkUpdate() },
-                    )
-                    ListItem(
-                        headlineContent = { Text(text = stringResource(R.string.settings_about_repo)) },
-                        leadingContent = { SettingsIcon(R.drawable.ic_settings_source) },
-                        trailingContent = {
-                            Icon(
-                                painter = painterResource(R.drawable.ic_arrow_right),
-                                contentDescription = null,
-                            )
-                        },
-                        colors = listItemColors(),
-                        modifier = Modifier
-                            .clip(groupItemShape(1, 5))
-                            .clickable {
-                                context.startActivity(
-                                    Intent(Intent.ACTION_VIEW, Uri.parse(GITHUB_REPO_URL)),
-                                )
-                            },
-                    )
-                    ListItem(
-                        headlineContent = { Text(text = stringResource(R.string.settings_about_sponsor)) },
-                        leadingContent = { SettingsIcon(R.drawable.ic_settings_sponsor) },
-                        trailingContent = {
-                            Icon(
-                                painter = painterResource(R.drawable.ic_arrow_right),
-                                contentDescription = null,
-                            )
-                        },
-                        colors = listItemColors(),
-                        modifier = Modifier
-                            .clip(groupItemShape(2, 5))
-                            .clickable {
-                                context.startActivity(
-                                    Intent(Intent.ACTION_VIEW, Uri.parse("https://ifdian.net/a/Polyaris")),
-                                )
-                            },
-                    )
-                    ListItem(
-                        headlineContent = { Text(text = stringResource(R.string.settings_about_feedback)) },
-                        leadingContent = { SettingsIcon(R.drawable.ic_settings_feedback) },
-                        trailingContent = {
-                            Icon(
-                                painter = painterResource(R.drawable.ic_arrow_right),
-                                contentDescription = null,
-                            )
-                        },
-                        colors = listItemColors(),
-                        modifier = Modifier
-                            .clip(groupItemShape(3, 5))
-                            .clickable {
-                                context.startActivity(
-                                    Intent(Intent.ACTION_VIEW, Uri.parse(GITHUB_ISSUES_URL)),
-                                )
-                            },
-                    )
-                    ListItem(
-                        headlineContent = { Text(text = stringResource(R.string.settings_about_licenses)) },
-                        leadingContent = { SettingsIcon(R.drawable.ic_settings_license) },
-                        trailingContent = {
-                            Icon(
-                                painter = painterResource(R.drawable.ic_arrow_right),
-                                contentDescription = null,
-                            )
-                        },
-                        colors = listItemColors(),
-                        modifier = Modifier
-                            .clip(groupItemShape(4, 5))
-                            .clickable {
-                                onOpenLicenses()
-                            },
-                    )
-                }
-            }
         }
     }
 }
@@ -548,35 +419,8 @@ fun SettingsScreen(
             onDismiss = { showAiDialog = false },
         )
     }
-
-    // 发现新版本弹窗:下载(浏览器)/关闭(仅关本次弹窗——手动检查不记「不再提醒」,
-    // 该语义只属于冷启动自动检查,见 MainActivity)
-    updateVersion?.let { version ->
-        UpdateDialog(
-            version = version,
-            onDownload = {
-                updateVersion = null
-                context.startActivity(
-                    Intent(Intent.ACTION_VIEW, Uri.parse("$GITHUB_REPO_URL/releases/latest")),
-                )
-            },
-            onDismiss = {
-                updateVersion = null
-            },
-        )
-    }
 }
 
-
-/** 设置项前置图标:统一尺寸与色调 */
-@Composable
-private fun SettingsIcon(@DrawableRes iconRes: Int) {
-    Icon(
-        painter = painterResource(iconRes),
-        contentDescription = null,
-        tint = MaterialTheme.colorScheme.onSurfaceVariant,
-    )
-}
 
 /** 书架排版模式显示名 */
 @Composable
@@ -730,7 +574,8 @@ private fun AiConfigSheet(
                 .padding(bottom = 24.dp),
         ) {
             Text(
-                text = stringResource(R.string.ai_dialog_title),
+                // 标题与设置入口项同一字符串,避免两处文案漂移
+                text = stringResource(R.string.settings_ai_key),
                 style = MaterialTheme.typography.titleLarge,
                 modifier = Modifier.padding(start = 16.dp, end = 16.dp, bottom = 12.dp),
             )

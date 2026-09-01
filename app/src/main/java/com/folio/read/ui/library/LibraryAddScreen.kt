@@ -4,18 +4,17 @@ import android.net.Uri
 import android.os.SystemClock
 import android.util.Log
 import android.widget.Toast
-import androidx.activity.compose.BackHandler
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -30,6 +29,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -48,7 +48,6 @@ import com.folio.read.data.BookTitleCleaner
 import com.folio.read.data.LibraryRepository
 import com.folio.read.data.TitleCleanSettings
 import com.folio.read.data.TitleCleanSettingsRepository
-import com.folio.read.ui.components.FolioTopBar
 import com.folio.read.ui.theme.AnimationTokens
 import kotlin.math.min
 import kotlinx.coroutines.CoroutineScope
@@ -62,24 +61,25 @@ import kotlinx.coroutines.withContext
 private data class FileCandidate(val uri: Uri, val name: String)
 
 /**
- * 书库添加页(单 Activity 目的地):扫描登记目录下的 txt,勾选后批量加入书架。
- * 主题/系统栏由宿主统一管理,本页只关心内容与返回。
+ * 书架页(底部 TAB):扫描已选书库目录下的文件,勾选后批量加入书架。
+ * 未选目录时显示引导;顶栏由宿主(Scaffold)提供,本页只渲染列表与底部操作。
  */
 @Composable
 fun LibraryAddScreen(
-    onBack: () -> Unit,
+    libraryDir: String?,
+    onSelectLibrary: () -> Unit,
+    modifier: Modifier = Modifier,
 ) {
     val context = LocalContext.current
     val libraryRepo = remember { LibraryRepository(context.applicationContext) }
     val bookRepo = remember { BookRepository(context.applicationContext) }
     var candidates by remember { mutableStateOf<List<FileCandidate>?>(null) } // null = 扫描中
     var selected by remember { mutableStateOf<Set<String>>(emptySet()) }
+    // 添加成功或目录变更后重扫:新加入的书移出候选,列表始终是「未加入」的候选
+    var scanKey by remember { mutableIntStateOf(0) }
     val scope = rememberCoroutineScope()
 
-    // 手势返回与顶栏返回按钮同行为:关闭覆盖层回书架(单 Activity 覆盖层需自行接管返回键)
-    BackHandler(enabled = true) { onBack() }
-
-    // 书名净化:开关开启且配置齐全时启用;净化协程独立于组合生命周期,返回书架后仍继续
+    // 书名净化:开关开启且配置齐全时启用;净化协程独立于组合生命周期,切走 TAB 后仍继续
     val aiRepo = remember { AiSettingsRepository(context.applicationContext) }
     val aiConfig by aiRepo.config.collectAsState(initial = AiConfig())
     val titleCleanRepo = remember { TitleCleanSettingsRepository(context.applicationContext) }
@@ -90,17 +90,20 @@ fun LibraryAddScreen(
     }
     val cleanScope = remember { CoroutineScope(SupervisorJob() + Dispatchers.IO) }
 
-    // 扫描书架目录下的 txt(复用 LibraryRepository.scanLibrary;IO 线程,避免大目录卡 UI)
-    LaunchedEffect(Unit) {
-        // debug:进页掉帧定位(扫描耗时/候选数/就绪时机)
+    // 扫描书架目录下的文件(复用 LibraryRepository.scanLibrary;IO 线程,避免大目录卡 UI);
+    // 直接传目录,不依赖 DataStore 异步读取(与 MainActivity 的 forceDir 同理)
+    LaunchedEffect(libraryDir, scanKey) {
+        val dir = libraryDir ?: return@LaunchedEffect
+        candidates = null
+        // debug:进页掉帧定位(扫描耗时/候选数/就绪时机);Log.w 因部分 ROM(ColorOS)丢弃 debug 级日志
         val t0 = SystemClock.uptimeMillis()
-        Log.d("FolioLibrary", "scan start at $t0")
+        Log.w("FolioLibrary", "scan start at $t0")
         val result = withContext(Dispatchers.IO) {
-            libraryRepo.scanLibrary().map { (uri, name) ->
+            libraryRepo.scanLibrary(dir).map { (uri, name) ->
                 FileCandidate(uri, name.ifBlank { context.getString(R.string.unnamed) })
             }
         }
-        Log.d("FolioLibrary", "scan done n=${result.size} dt=${SystemClock.uptimeMillis() - t0}ms")
+        Log.w("FolioLibrary", "scan done n=${result.size} dt=${SystemClock.uptimeMillis() - t0}ms")
         // 分批展示:一次性组合全部候选会冻结主线程一帧(实测 10 项 ~124ms),
         // 分批插入每帧只组合 2-3 项,列表渐进出现无冻结(曾试遮罩掩盖,淡出动画帧反而更卡,弃)
         val step = 3
@@ -114,133 +117,151 @@ fun LibraryAddScreen(
 
     val list = candidates
     Box(
-        modifier = Modifier
+        modifier = modifier
             .fillMaxSize()
             .background(MaterialTheme.colorScheme.background),
     ) {
-        Column(modifier = Modifier.fillMaxSize()) {
-            FolioTopBar(titleRes = R.string.library_add_title, onBack = onBack)
-
-            // 列表常驻:LazyColumn 容器不随扫描状态整树切换(曾用 Crossfade 切三态,扫描完成时
-            // 整树重建+淡入 → 实测 157ms 掉帧),数据到只增量插入 item,首帧成本摊薄
-            LazyColumn(modifier = Modifier.weight(1f)) {
-                when {
-                    list == null -> {} // 扫描中:空白
-                    list.isEmpty() -> item {
-                        Text(
-                            text = stringResource(R.string.library_scan_empty),
-                            color = MaterialTheme.colorScheme.onSurface,
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(24.dp),
-                        )
-                    }
-                    else -> items(list) { candidate ->
-                        val uri = candidate.uri.toString()
-                        val isChecked = uri in selected
-                        ListItem(
-                            headlineContent = { Text(text = candidate.name) },
-                            trailingContent = {
-                                Checkbox(
-                                    checked = isChecked,
-                                    onCheckedChange = { checked ->
-                                        selected = if (checked) selected + uri else selected - uri
-                                    },
-                                )
-                            },
-                            // 分批插入的 item 出现时淡入(此前逐批闪现无动画,2026-08-26 用户反馈影响观感)
-                            modifier = Modifier
-                                .animateItem(
-                                    fadeInSpec = tween(AnimationTokens.Medium),
-                                    fadeOutSpec = tween(AnimationTokens.Medium),
-                                )
-                                .clickable {
-                                    selected = if (isChecked) selected - uri else selected + uri
-                                },
-                        )
-                    }
+        if (libraryDir == null) {
+            // 未选目录:居中引导,点击选择书架目录
+            Column(
+                modifier = Modifier.align(Alignment.Center),
+                horizontalAlignment = Alignment.CenterHorizontally,
+            ) {
+                Text(
+                    text = stringResource(R.string.library_dir_empty_hint),
+                    style = MaterialTheme.typography.bodyLarge,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(horizontal = 32.dp),
+                )
+                Spacer(modifier = Modifier.padding(16.dp))
+                Button(onClick = onSelectLibrary) {
+                    Text(text = stringResource(R.string.shelf_add_library))
                 }
             }
-            if (list != null && list.isNotEmpty()) {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .navigationBarsPadding()
-                        .padding(horizontal = 16.dp, vertical = 8.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    TextButton(onClick = {
-                        selected = if (selected.size == list.size) {
-                            emptySet()
-                        } else {
-                            list.map { it.uri.toString() }.toSet()
+        } else {
+            Column(modifier = Modifier.fillMaxSize()) {
+                // 列表常驻:LazyColumn 容器不随扫描状态整树切换(曾用 Crossfade 切三态,扫描完成时
+                // 整树重建+淡入 → 实测 157ms 掉帧),数据到只增量插入 item,首帧成本摊薄
+                LazyColumn(modifier = Modifier.weight(1f)) {
+                    when {
+                        list == null -> {} // 扫描中:空白
+                        list.isEmpty() -> item {
+                            Text(
+                                text = stringResource(R.string.library_scan_empty),
+                                color = MaterialTheme.colorScheme.onSurface,
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(24.dp),
+                            )
                         }
-                    }) {
-                        Text(text = stringResource(R.string.library_select_all))
+                        else -> items(list) { candidate ->
+                            val uri = candidate.uri.toString()
+                            val isChecked = uri in selected
+                            ListItem(
+                                headlineContent = { Text(text = candidate.name) },
+                                trailingContent = {
+                                    Checkbox(
+                                        checked = isChecked,
+                                        onCheckedChange = { checked ->
+                                            selected = if (checked) selected + uri else selected - uri
+                                        },
+                                    )
+                                },
+                                // 分批插入的 item 出现时淡入(此前逐批闪现无动画,2026-08-26 用户反馈影响观感)
+                                modifier = Modifier
+                                    .animateItem(
+                                        fadeInSpec = tween(AnimationTokens.Medium),
+                                        fadeOutSpec = tween(AnimationTokens.Medium),
+                                    )
+                                    .clickable {
+                                        selected = if (isChecked) selected - uri else selected + uri
+                                    },
+                            )
+                        }
                     }
-                    Spacer(modifier = Modifier.weight(1f))
-                    // 按钮颜色过渡:M3 1.4.0 Button 对 enabled 颜色变化是瞬变(源码确认无 animateColorAsState),
-                    // 显式加容器/文字色过渡(未选中灰 → 选中主题色)
-                    val addEnabled = selected.isNotEmpty()
-                    val btnContainer by animateColorAsState(
-                        targetValue = if (addEnabled) {
-                            MaterialTheme.colorScheme.primary
-                        } else {
-                            MaterialTheme.colorScheme.onSurface.copy(alpha = 0.12f) // M3 禁用容器色
-                        },
-                        animationSpec = tween(AnimationTokens.Medium),
-                        label = "addBtnContainer",
-                    )
-                    val btnContent by animateColorAsState(
-                        targetValue = if (addEnabled) {
-                            MaterialTheme.colorScheme.onPrimary
-                        } else {
-                            MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f) // M3 禁用文字色
-                        },
-                        animationSpec = tween(AnimationTokens.Medium),
-                        label = "addBtnContent",
-                    )
-                    Button(
-                        enabled = addEnabled,
-                        colors = ButtonDefaults.buttonColors(
-                            containerColor = btnContainer,
-                            contentColor = btnContent,
-                            disabledContainerColor = btnContainer,
-                            disabledContentColor = btnContent,
-                        ),
-                        onClick = {
-                            scope.launch {
-                                var skipped = 0
-                                val toClean = mutableListOf<Book>()
-                                withContext(Dispatchers.IO) {
-                                    selected.forEach { uri ->
-                                        // 重复文件由唯一索引自动跳过
-                                        val book = bookRepo.addBook(Uri.parse(uri))
-                                        if (book == null) {
-                                            skipped++
-                                        } else if (cleaner != null) {
-                                            toClean.add(book)
+                }
+                if (list != null && list.isNotEmpty()) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 16.dp, vertical = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        TextButton(onClick = {
+                            selected = if (selected.size == list.size) {
+                                emptySet()
+                            } else {
+                                list.map { it.uri.toString() }.toSet()
+                            }
+                        }) {
+                            Text(text = stringResource(R.string.library_select_all))
+                        }
+                        Spacer(modifier = Modifier.weight(1f))
+                        // 按钮颜色过渡:M3 1.4.0 Button 对 enabled 颜色变化是瞬变(源码确认无 animateColorAsState),
+                        // 显式加容器/文字色过渡(未选中灰 → 选中主题色)
+                        val addEnabled = selected.isNotEmpty()
+                        val btnContainer by animateColorAsState(
+                            targetValue = if (addEnabled) {
+                                MaterialTheme.colorScheme.primary
+                            } else {
+                                MaterialTheme.colorScheme.onSurface.copy(alpha = 0.12f) // M3 禁用容器色
+                            },
+                            animationSpec = tween(AnimationTokens.Medium),
+                            label = "addBtnContainer",
+                        )
+                        val btnContent by animateColorAsState(
+                            targetValue = if (addEnabled) {
+                                MaterialTheme.colorScheme.onPrimary
+                            } else {
+                                MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f) // M3 禁用文字色
+                            },
+                            animationSpec = tween(AnimationTokens.Medium),
+                            label = "addBtnContent",
+                        )
+                        Button(
+                            enabled = addEnabled,
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = btnContainer,
+                                contentColor = btnContent,
+                                disabledContainerColor = btnContainer,
+                                disabledContentColor = btnContent,
+                            ),
+                            onClick = {
+                                scope.launch {
+                                    var skipped = 0
+                                    val toClean = mutableListOf<Book>()
+                                    withContext(Dispatchers.IO) {
+                                        selected.forEach { uri ->
+                                            // 重复文件由唯一索引自动跳过
+                                            val book = bookRepo.addBook(Uri.parse(uri))
+                                            if (book == null) {
+                                                skipped++
+                                            } else if (cleaner != null) {
+                                                toClean.add(book)
+                                            }
+                                        }
+                                    }
+                                    if (skipped > 0) {
+                                        Toast.makeText(
+                                            context,
+                                            context.getString(R.string.library_add_skipped, skipped),
+                                            Toast.LENGTH_SHORT,
+                                        ).show()
+                                    }
+                                    // TAB 化:添加后不返回,清空选中并重扫,新加入的书从候选消失
+                                    selected = emptySet()
+                                    scanKey++
+                                    // 书名净化后台跑,不阻塞列表刷新
+                                    toClean.forEach { book ->
+                                        cleanScope.launch {
+                                            cleaner?.let { bookRepo.aiCleanBook(book, it) }
                                         }
                                     }
                                 }
-                                if (skipped > 0) {
-                                    Toast.makeText(
-                                        context,
-                                        context.getString(R.string.library_add_skipped, skipped),
-                                        Toast.LENGTH_SHORT,
-                                    ).show()
-                                }
-                                onBack()
-                                // 书名净化后台跑,不阻塞返回书架
-                                toClean.forEach { book ->
-                                    cleanScope.launch {
-                                        cleaner?.let { bookRepo.aiCleanBook(book, it) }
-                                    }
-                                }
-                            }
-                        },
-                    ) {
-                        Text(text = stringResource(R.string.library_add_selected))
+                            },
+                        ) {
+                            Text(text = stringResource(R.string.library_add_selected))
+                        }
                     }
                 }
             }

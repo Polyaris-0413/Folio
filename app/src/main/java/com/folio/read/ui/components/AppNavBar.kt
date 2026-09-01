@@ -69,8 +69,7 @@ fun AppNavBar(
                     }
                 },
                 icon = {
-                    // 与 Tab 内容区/顶栏标题同款 FadeThrough(Large 档 300ms + 0.975 缩放),
-                    // 全局动画数值统一(AnimationTokens.Large + 默认 FastOutSlowIn)。
+                    // debug 实验 T2:恢复图标 AnimatedContent(顶栏标题/按钮仍静态)
                     AnimatedContent(
                         targetState = selected,
                         transitionSpec = {

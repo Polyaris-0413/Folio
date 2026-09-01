@@ -30,7 +30,10 @@ import androidx.compose.animation.scaleIn
 import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.togetherWith
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.isSystemInDarkTheme
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
@@ -40,23 +43,26 @@ import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.navigationBars
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.width
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.ListItem
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.PlainTooltip
 import androidx.compose.material3.Text
+import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TooltipBox
 import androidx.compose.material3.TooltipDefaults
+import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.material3.rememberTooltipState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -65,12 +71,14 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.MutableState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalFontFamilyResolver
@@ -80,6 +88,7 @@ import androidx.compose.ui.text.TextMeasurer
 import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.unit.dp
@@ -113,7 +122,9 @@ import com.folio.read.ui.components.rememberBelowTooltipPositionProvider
 import com.folio.read.ui.components.FolioAlertDialog
 import com.folio.read.ui.components.FolioTopBar
 import com.folio.read.ui.components.UpdateDialog
-import com.folio.read.ui.components.menuShape
+import com.folio.read.ui.components.groupItemShape
+import com.folio.read.ui.components.groupItemSpacing
+import com.folio.read.ui.components.listItemColors
 import com.folio.read.ui.library.LibraryAddScreen
 import com.folio.read.ui.licenses.LicensesScreen
 import com.folio.read.ui.navigation.AppRoutes
@@ -123,6 +134,7 @@ import com.folio.read.ui.reader.ReaderHPadding
 import com.folio.read.ui.reader.ReaderVPadding
 import com.folio.read.ui.reader.preWarmBook
 import com.folio.read.ui.screens.ShelfScreen
+import com.folio.read.ui.settings.AboutScreen
 import com.folio.read.ui.settings.SettingsScreen
 import com.folio.read.ui.settings.ThemeItemExpandState
 import com.folio.read.ui.theme.AnimationTokens
@@ -185,7 +197,10 @@ private fun AppRoot(
     var followSystemTheme by remember { mutableStateOf(true) }
     var manualDark by remember { mutableStateOf(false) }
     var dynamicColor by remember { mutableStateOf(false) }
-    var selectedSection by rememberSaveable { mutableStateOf(AppSections.Shelf) }
+    // tab 状态不走 by 委托:AppRoot 函数体不读 .value,切 tab 时重组只发生在读取它的小组件
+    // (MainBottomBar/SectionContent/ShelfAutoSyncEffect/TabBackHandlers)内,800 行的 AppRoot
+    // 不再整体重启(2026-09-01 掉帧排查:切 tab 触发 AppRoot 级联重组占切换帧大头之一)
+    val selectedSectionState = rememberSaveable { mutableStateOf(AppSections.Shelf) }
 
     // 单 Activity 导航:全局唯一 NavController,提升到主题 Crossfade 之外(主题过渡期间新旧副本共用同一控制器)
     val navController = rememberNavController()
@@ -290,15 +305,19 @@ private fun AppRoot(
     var readerBookId by remember { mutableStateOf<Long?>(null) }
     // 书架内联搜索:书架顶栏搜索图标切换(展开=下滑出搜索框并过滤网格);关书回书架后
     // 状态保留,方便继续找下一本;收起时清空关键词(避免下次展开带着旧过滤结果误以为书丢了)
-    var showSearch by remember { mutableStateOf(false) }
-    var searchQuery by remember { mutableStateOf("") }
+    // 搜索状态保留 by 委托(AppRoot 内大量读写);同时暴露 State 对象给 SectionContent/TabBackHandlers
+    val searchState = remember { mutableStateOf(false) }
+    var showSearch by searchState
+    val searchQueryState = remember { mutableStateOf("") }
+    var searchQuery by searchQueryState
     // 收起搜索框时顺带收键盘(覆盖层/展开切换不会自动收)
     val keyboard = LocalSoftwareKeyboardController.current
     // 退出动画期间内容需保持组合:捕获最后非空 id 供覆盖层内容使用
     var lastReaderBookId by remember { mutableStateOf<Long?>(null) }
-    // 许可页/添加页覆盖层:与阅读页同模式,main 保持存活,退出不重组
+    // 许可页/设置页/关于页覆盖层:与阅读页同模式,main 保持存活,退出不重组
     var showLicenses by remember { mutableStateOf(false) }
-    var showLibraryAdd by remember { mutableStateOf(false) }
+    var showSettings by remember { mutableStateOf(false) }
+    var showAbout by remember { mutableStateOf(false) }
     // 阅读页退出回调:书 id 由状态带入,退出即置顶 + 书架滚回顶部
     fun onReaderClose(bookId: Long) {
         appScope.launch { bookRepo.markRead(bookId) }
@@ -415,21 +434,16 @@ private fun AppRoot(
         }
     }
     // 进入书架页时自动同步(不再只启动时扫一次):从设置/阅读页/许可页回来,目录里的新书实时出现。
-    // 触发 = 书架从不可见变为可见(无覆盖层 + 书架 tab 选中);节流 10s,避免书架↔设置高频切换重复扫。
-    val shelfVisible = selectedSection == AppSections.Shelf &&
-        readerBookId == null && !showLicenses && !showLibraryAdd
-    var wasShelfVisible by remember { mutableStateOf(false) }
-    var lastAutoSyncAt by remember { mutableStateOf(0L) }
-    LaunchedEffect(shelfVisible) {
-        if (shelfVisible && !wasShelfVisible) {
-            val now = SystemClock.uptimeMillis()
-            if (now - lastAutoSyncAt >= AUTO_SYNC_THROTTLE_MS) {
-                lastAutoSyncAt = now
-                runShelfSync()
-            }
-        }
-        wasShelfVisible = shelfVisible
-    }
+    // 触发 = 阅读 tab 从不可见变为可见(无覆盖层 + 阅读 tab 选中);节流 10s,避免 tab 高频切换重复扫。
+    // 状态读取隔离进 ShelfAutoSyncEffect:tab 切换不触发 AppRoot 重组
+    ShelfAutoSyncEffect(
+        sectionState = selectedSectionState,
+        readerBookId = readerBookId,
+        showLicenses = showLicenses,
+        showSettings = showSettings,
+        showAbout = showAbout,
+        onSync = { runShelfSync() },
+    )
 
     // 添加书籍:SAF 文件选择器;重复文件(唯一索引拦截)提示用户
     val addBookLauncher = rememberLauncherForActivityResult(
@@ -461,10 +475,8 @@ private fun AppRoot(
         }
     }
 
-    // 打开书库添加页(扫描勾选入架):覆盖层,main 保持存活
-    fun openLibraryAdd() {
-        showLibraryAdd = true
-    }
+    // 顶栏 overflow(关于/设置)菜单已移至文件级 GlobalOverflowMenu(参数化回调),
+    // 供 SectionContent 内两个 TAB 的顶栏共用
 
     // 添加书库目录:SAF 目录选择器,选择后持久化;自动同步开启时选完立即扫描
     // (用刚选的目录传入 scanLibrary,不依赖 DataStore 异步写入;开关关着只登记不扫)
@@ -534,292 +546,93 @@ private fun AppRoot(
                 composable(AppRoutes.MAIN) {
                     // 阅读页覆盖层需要盖住顶栏/底栏,main 目的地根节点包 Box
                     Box(modifier = Modifier.fillMaxSize()) {
-                    Scaffold(                modifier = Modifier.fillMaxSize(),
+                    Scaffold(modifier = Modifier.fillMaxSize(),
                 // 各页面自带 TopAppBar 负责状态栏内边距,外层 Scaffold 不再叠加顶部 inset
                 contentWindowInsets = WindowInsets(0, 0, 0, 0),
-                // 共享顶栏(背景固定,避免透出底色变暗):标题动画在 FolioTopBar 内做
-                // (新标题淡入,旧标题淡出),顶栏背景不参与过渡
-                topBar = {
-                    FolioTopBar(
-                        titleRes = selectedSection.labelRes,
-                        actions = {
-                            // 顶栏操作:仅书架页显示——未选中=overflow 菜单,选中=重命名/删除;
-                            // 其他页面=空白(切页淡出隐藏,不留 overflow)。
-                            // 固定宽度(两图标)让过渡期容器尺寸不变,旧图标不因内容叠放漂移
-                            val topBarActionState = when {
-                                selectedSection != AppSections.Shelf -> 0
-                                selectedBookIds.isNotEmpty() -> 1
-                                else -> 2
-                            }
-                            Crossfade(
-                                targetState = topBarActionState,
-                                // 与顶栏标题/内容区切换同档(Large):切页时标题与操作按钮同节奏淡出
-                                animationSpec = tween(AnimationTokens.Large),
-                                modifier = Modifier.width(96.dp),
-                            ) { state ->
-                                // 外层占满 Box:在 BoxScope 里用通用 align 靠右(Crossfade 内容
-                                // 的 AnimatedContentScope.align 与外层 RowScope.align 重名冲突)
-                                Box(modifier = Modifier.fillMaxSize()) {
-                                when (state) {
-                                    0 -> Unit // 非书架页:无操作按钮(旧内容淡出)
-                                    1 -> {
-                                        // Crossfade 内容不在 RowScope,两图标须包 Row 才并排
-                                        Row(modifier = Modifier.align(Alignment.CenterEnd)) {
-                                            // 重命名仅单选时可用(无批量重命名场景),淡入淡出与顶栏同档
-                                            AnimatedVisibility(
-                                                visible = selectedBookIds.size == 1,
-                                                enter = fadeIn(animationSpec = tween(AnimationTokens.Large)),
-                                                exit = fadeOut(animationSpec = tween(AnimationTokens.Large)),
-                                            ) {
-                                                TooltipBox(
-                                                    positionProvider = rememberBelowTooltipPositionProvider(),
-                                                    tooltip = { PlainTooltip { Text(stringResource(R.string.shelf_rename)) } },
-                                                    state = rememberTooltipState(),
-                                                ) {
-                                                    IconButton(onClick = { showRenameDialog = true }) {
-                                                        Icon(
-                                                            painter = painterResource(R.drawable.ic_shelf_rename),
-                                                            contentDescription = stringResource(R.string.shelf_rename),
-                                                        )
-                                                    }
-                                                }
-                                            }
-                                            TooltipBox(
-                                                positionProvider = rememberBelowTooltipPositionProvider(),
-                                                tooltip = { PlainTooltip { Text(stringResource(R.string.shelf_delete)) } },
-                                                state = rememberTooltipState(),
-                                            ) {
-                                                IconButton(onClick = { showDeleteConfirm = true }) {
-                                                    Icon(
-                                                        painter = painterResource(R.drawable.ic_shelf_delete),
-                                                        contentDescription = stringResource(R.string.shelf_delete),
-                                                    )
-                                                }
-                                            }
-                                        }
-                                    }
-                                    else -> {
-                                        // 搜索按钮在 overflow 左边;与选中态(重命名+删除)同为 96dp Row,间距统一
-                                        Row(modifier = Modifier.align(Alignment.CenterEnd)) {
-                                            TooltipBox(
-                                                positionProvider = rememberBelowTooltipPositionProvider(),
-                                                tooltip = { PlainTooltip { Text(stringResource(R.string.search)) } },
-                                                state = rememberTooltipState(),
-                                            ) {
-                                                // 搜索开关:收起时清空关键词(见 showSearch 声明处注释)
-                                                IconButton(onClick = {
-                                                    if (showSearch) {
-                                                        showSearch = false
-                                                        searchQuery = ""
-                                                        keyboard?.hide()
-                                                    } else {
-                                                        showSearch = true
-                                                    }
-                                                }) {
-                                                    Icon(
-                                                        painter = painterResource(R.drawable.ic_search),
-                                                        contentDescription = stringResource(R.string.search),
-                                                    )
-                                                }
-                                            }
-                                            Box {
-                                                var shelfMenuExpanded by remember { mutableStateOf(false) }
-                                                TooltipBox(
-                                                    positionProvider = rememberBelowTooltipPositionProvider(),
-                                                    tooltip = { PlainTooltip { Text(stringResource(R.string.shelf_more)) } },
-                                                    state = rememberTooltipState(),
-                                                ) {
-                                                    IconButton(onClick = { shelfMenuExpanded = true }) {
-                                                        Icon(
-                                                            painter = painterResource(R.drawable.ic_more_vert),
-                                                            contentDescription = stringResource(R.string.shelf_more),
-                                                        )
-                                                    }
-                                                }
-                                                DropdownMenu(
-                                                expanded = shelfMenuExpanded,
-                                            onDismissRequest = { shelfMenuExpanded = false },
-                                            // 容器色用 M3 默认 surfaceContainer,圆角 = M3 菜单档(small 8dp)
-                                            shape = menuShape,
-                                        ) {
-                                            DropdownMenuItem(
-                                                text = { Text(text = stringResource(R.string.shelf_add_book)) },
-                                                leadingIcon = {
-                                                    Icon(
-                                                        painter = painterResource(R.drawable.ic_folder),
-                                                        contentDescription = null,
-                                                    )
-                                                },
-                                                onClick = {
-                                                    shelfMenuExpanded = false
-                                                    addBookLauncher.launch(arrayOf("*/*"))
-                                                },
-                                            )
-                                            DropdownMenuItem(
-                                                text = {
-                                                    Text(
-                                                        text = stringResource(
-                                                            if (libraryDir == null) {
-                                                                R.string.shelf_add_library
-                                                            } else {
-                                                                R.string.shelf_add_from_library
-                                                            },
-                                                        ),
-                                                    )
-                                                },
-                                                leadingIcon = {
-                                                    Icon(
-                                                        painter = painterResource(R.drawable.ic_shelves),
-                                                        contentDescription = null,
-                                                    )
-                                                },
-                                                onClick = {
-                                                    shelfMenuExpanded = false
-                                                    if (libraryDir == null) {
-                                                        addLibraryLauncher.launch(null)
-                                                    } else {
-                                                        openLibraryAdd()
-                                                    }
-                                                },
-                                            )
-                                        }
-                                            }
-                                    }
-                                }
-                                }
-                            }
-                            }
-                        },
-                    )
-                },
                 bottomBar = {
-                    AppNavBar(
-                        selectedSection = selectedSection,
-                        onSectionSelected = { selectedSection = it },
-                    )
+                    MainBottomBar(sectionState = selectedSectionState)
                 },
             ) { innerPadding ->
                 val contentModifier = Modifier.padding(innerPadding)
 
                 // 同级 tab 内容切换:FadeThrough 风格(淡入 + 0.975 微缩放),移植自 Book's Story;
-                // 时长仍用全局 Large 档(动画数值统一原则),不照搬其 250ms
-                // 注:曾尝试三页常驻组合+透明度切换,实测掉帧更差(隐藏重页面每帧绘制开销大于
-                // 切换时组合一次),已回滚;掉帧集中在切换到设置页的首帧组合。
-                AnimatedContent(
-                    targetState = selectedSection,
-                    transitionSpec = {
-                        (fadeIn(tween(AnimationTokens.Large)) +
-                            scaleIn(tween(AnimationTokens.Large), initialScale = 0.975f))
-                            .togetherWith(fadeOut(tween(AnimationTokens.Large)))
+                // 时长仍用全局 Large 档(动画数值统一原则),不照搬其 250ms。
+                // 整块读取隔离进 SectionContent(单一动画层+顶栏并入内容子树):tab 切换只重启
+                // 该组件与 MainBottomBar 等,AppRoot 不再整体重组(掉帧排查结论,见组件注释)
+                SectionContent(
+                    sectionState = selectedSectionState,
+                    contentPadding = innerPadding,
+                    books = books,
+                    shelfLayout = shelfLayout,
+                    selectedBookIds = selectedBookIds,
+                    searchActive = showSearch,
+                    searchQuery = searchQuery,
+                    onSearchQueryChange = { searchQuery = it },
+                    onSearchToggle = { expand ->
+                        if (expand) {
+                            showSearch = true
+                        } else {
+                            // 收起时清空关键词(避免下次展开带着旧过滤结果误以为书丢了)+收键盘
+                            showSearch = false
+                            searchQuery = ""
+                            keyboard?.hide()
+                        }
                     },
-                    label = "sectionContent",
-                ) { section ->
-                    when (section) {
-                        AppSections.Shelf -> ShelfScreen(
-                            books = books,
-                            shelfLayout = shelfLayout,
-                            selectedBookIds = selectedBookIds,
-                            searchActive = showSearch,
-                            searchQuery = searchQuery,
-                            onSearchQueryChange = { searchQuery = it },
-                            scrollToTopSignal = scrollToTopSignal,
-                            scrollToTopAnimatedSignal = scrollToTopAnimatedSignal,
-                            onToggleSelect = { book ->
-                                selectedBookIds =
-                                    if (book.id in selectedBookIds) selectedBookIds - book.id
-                                    else selectedBookIds + book.id
-                            },
-                            onAddBook = { addBookLauncher.launch(arrayOf("*/*")) },
-                            onOpenBook = { book ->
-                                // 先查源文件可读性:被外部删除/不可读时书架层弹框,不进阅读页
-                                appScope.launch {
-                                    if (bookRepo.isReadable(book)) {
-                                        // 搜索中开书=已找到目标:与收起同逻辑(收框+清词+收键盘),
-                                        // 回到书架即完整书架(此前保留搜索状态的方案被此交互取代)
-                                        if (showSearch) {
-                                            showSearch = false
-                                            searchQuery = ""
-                                            keyboard?.hide()
-                                        }
-                                        // 打开阅读页覆盖层;快速连点置同一本书是幂等 no-op(无栈可叠)
-                                        readerBookId = book.id
-                                    } else {
-                                        openFailedBook = book
-                                    }
+                    scrollToTopSignal = scrollToTopSignal,
+                    scrollToTopAnimatedSignal = scrollToTopAnimatedSignal,
+                    onToggleSelect = { book ->
+                        selectedBookIds =
+                            if (book.id in selectedBookIds) selectedBookIds - book.id
+                            else selectedBookIds + book.id
+                    },
+                    onAddBook = { addBookLauncher.launch(arrayOf("*/*")) },
+                    onOpenBook = { book ->
+                        // 先查源文件可读性:被外部删除/不可读时书架层弹框,不进阅读页
+                        appScope.launch {
+                            if (bookRepo.isReadable(book)) {
+                                // 搜索中开书=已找到目标:与收起同逻辑(收框+清词+收键盘),
+                                // 回到书架即完整书架(此前保留搜索状态的方案被此交互取代)
+                                if (showSearch) {
+                                    showSearch = false
+                                    searchQuery = ""
+                                    keyboard?.hide()
                                 }
-                            },
-                            modifier = contentModifier,
-                        )
-                        AppSections.Settings -> SettingsScreen(
-                            expandState = themeExpandState,
-                            followSystemTheme = followSystemTheme,
-                            manualDark = manualDark,
-                            onManualDarkChange = { newValue ->
-                                manualDark = newValue
-                                appScope.launch { settingsRepo.setManualDark(newValue) }
-                            },
-                            dynamicColor = dynamicColor,
-                            onDynamicColorChange = { newValue ->
-                                dynamicColor = newValue
-                                appScope.launch { settingsRepo.setDynamicColor(newValue) }
-                            },
-                            onOpenLicenses = { showLicenses = true },
-                            libraryDirName = libraryDirName,
-                            onSelectLibrary = { addLibraryLauncher.launch(null) },
-                            shelfSync = shelfSync.enabled,
-                            onShelfSyncChange = { enabled ->
-                                appScope.launch { shelfSyncRepo.setEnabled(enabled) }
-                                // 首次开启时说明「移除的书不会自动加回」(只提示一次)
-                                if (enabled) {
-                                    appScope.launch {
-                                        if (!shelfSyncRepo.hasShownRemovalHint()) {
-                                            showShelfSyncHint = true
-                                            shelfSyncRepo.markRemovalHintShown()
-                                        }
-                                    }
-                                }
-                                // 开启时立即同步一次(关闭只停后续,不清理已有书);force 跳过 DataStore 未写完的旧值
-                                if (enabled) runShelfSync(forceEnabled = true)
-                            },
-                            shelfLayout = shelfLayout,
-                            onShelfLayoutChange = { layout ->
-                                appScope.launch { shelfSettingsRepo.setShelfLayout(layout) }
-                            },
-                            pageTurn = pageTurn,
-                            onPageTurnChange = { turn ->
-                                appScope.launch { pageTurnRepo.setPageTurnMode(turn.mode) }
-                            },
-                            aiConfig = aiConfig,
-                            onAiConfigChange = { config ->
-                                appScope.launch { aiRepo.save(config) }
-                            },
-                            titleClean = titleClean,
-                            onTitleCleanChange = { enabled ->
-                                appScope.launch { titleCleanRepo.setEnabled(enabled) }
-                            },
-                            modifier = contentModifier,
-                        )
-                    }
-                }
+                                // 打开阅读页覆盖层;快速连点置同一本书是幂等 no-op(无栈可叠)
+                                readerBookId = book.id
+                            } else {
+                                openFailedBook = book
+                            }
+                        }
+                    },
+                    libraryDir = libraryDir,
+                    onSelectLibrary = { addLibraryLauncher.launch(null) },
+                    onShowRenameDialog = { showRenameDialog = true },
+                    onShowDeleteConfirm = { showDeleteConfirm = true },
+                    onAbout = { showAbout = true },
+                    onSettings = { showSettings = true },
+                )
             }
 
-            // 搜索展开时返回键收起搜索(而非退出应用);声明在选择模式之前,选择优先退出。
-            // 仅书架 tab 生效:设置页按返回仍应切回书架,不能被搜索状态截走
-            BackHandler(enabled = showSearch && selectedSection == AppSections.Shelf) {
-                showSearch = false
-                searchQuery = ""
-                keyboard?.hide()
-            }
+            // tab 相关返回键(搜索收起/书架切回阅读):状态读取隔离进 TabBackHandlers,
+            // tab 切换不触发 AppRoot 重组。声明在选择模式之前,选择优先退出(组合顺序语义不变)
+            TabBackHandlers(
+                sectionState = selectedSectionState,
+                searchActive = showSearch,
+                onCollapseSearch = {
+                    showSearch = false
+                    searchQuery = ""
+                    keyboard?.hide()
+                },
+            )
 
             // 选择模式下返回键退出选择,而非退出应用
             BackHandler(enabled = selectedBookIds.isNotEmpty()) {
                 selectedBookIds = emptySet()
             }
 
-            // 设置页返回:切回书架 tab(返回手势语义=回到上一界面,而非退出应用)
-            BackHandler(enabled = selectedSection == AppSections.Settings) {
-                selectedSection = AppSections.Shelf
-            }
+            // 设置/关于覆盖层返回:关闭覆盖层(与阅读页覆盖层同语义)
+            BackHandler(enabled = showSettings) { showSettings = false }
+            BackHandler(enabled = showAbout) { showAbout = false }
 
             // 冷启动检测到新版本:下载(浏览器)/关闭(记住该版本,本次不再提醒;更更新的版本仍会提示)
             pendingUpdate?.let { version ->
@@ -996,20 +809,385 @@ private fun AppRoot(
             ) {
                 LicensesScreen(onBack = { showLicenses = false })
             }
-            // 添加页覆盖层
+            // 设置页覆盖层:与阅读页同模式,main 保持存活,退出不重组
             AnimatedVisibility(
-                visible = showLibraryAdd,
+                visible = showSettings,
                 modifier = Modifier.fillMaxSize(),
                 enter = fadeIn(tween(AnimationTokens.XL)) +
                     slideInHorizontally(tween(AnimationTokens.XL)) { it / 16 },
                 exit = fadeOut(tween(AnimationTokens.XL)) +
                     slideOutHorizontally(tween(AnimationTokens.XL)) { it / 16 },
             ) {
-                LibraryAddScreen(onBack = { showLibraryAdd = false })
+                SettingsScreen(
+                    onBack = { showSettings = false },
+                    expandState = themeExpandState,
+                    followSystemTheme = followSystemTheme,
+                    manualDark = manualDark,
+                    onManualDarkChange = { newValue ->
+                        manualDark = newValue
+                        appScope.launch { settingsRepo.setManualDark(newValue) }
+                    },
+                    dynamicColor = dynamicColor,
+                    onDynamicColorChange = { newValue ->
+                        dynamicColor = newValue
+                        appScope.launch { settingsRepo.setDynamicColor(newValue) }
+                    },
+                    libraryDirName = libraryDirName,
+                    onSelectLibrary = { addLibraryLauncher.launch(null) },
+                    shelfSync = shelfSync.enabled,
+                    onShelfSyncChange = { enabled ->
+                        appScope.launch { shelfSyncRepo.setEnabled(enabled) }
+                        // 首次开启时说明「移除的书不会自动加回」(只提示一次)
+                        if (enabled) {
+                            appScope.launch {
+                                if (!shelfSyncRepo.hasShownRemovalHint()) {
+                                    showShelfSyncHint = true
+                                    shelfSyncRepo.markRemovalHintShown()
+                                }
+                            }
+                        }
+                        // 开启时立即同步一次(关闭只停后续,不清理已有书);force 跳过 DataStore 未写完的旧值
+                        if (enabled) runShelfSync(forceEnabled = true)
+                    },
+                    shelfLayout = shelfLayout,
+                    onShelfLayoutChange = { layout ->
+                        appScope.launch { shelfSettingsRepo.setShelfLayout(layout) }
+                    },
+                    pageTurn = pageTurn,
+                    onPageTurnChange = { turn ->
+                        appScope.launch { pageTurnRepo.setPageTurnMode(turn.mode) }
+                    },
+                    aiConfig = aiConfig,
+                    onAiConfigChange = { config ->
+                        appScope.launch { aiRepo.save(config) }
+                    },
+                    titleClean = titleClean,
+                    onTitleCleanChange = { enabled ->
+                        appScope.launch { titleCleanRepo.setEnabled(enabled) }
+                    },
+                )
+            }
+            // 关于页覆盖层:设置页「关于」分组拆出后独立,与阅读页同模式
+            AnimatedVisibility(
+                visible = showAbout,
+                modifier = Modifier.fillMaxSize(),
+                enter = fadeIn(tween(AnimationTokens.XL)) +
+                    slideInHorizontally(tween(AnimationTokens.XL)) { it / 16 },
+                exit = fadeOut(tween(AnimationTokens.XL)) +
+                    slideOutHorizontally(tween(AnimationTokens.XL)) { it / 16 },
+            ) {
+                AboutScreen(
+                    onBack = { showAbout = false },
+                    onOpenLicenses = { showLicenses = true },
+                )
             }
             }
             }
         }
         }
+    }
+}
+
+/**
+ * 底部导航:tab 状态读取隔离在此(MainBottomBar 读 selectedSectionState.value),
+ * 切 tab 时重组只发生在这里,不再触发 AppRoot 整体重启(2026-09-01 掉帧排查结论)
+ */
+@Composable
+private fun MainBottomBar(sectionState: MutableState<AppSections>) {
+    AppNavBar(
+        selectedSection = sectionState.value,
+        onSectionSelected = { sectionState.value = it },
+    )
+}
+
+/**
+ * tab 内容区:内容切换 FadeThrough(淡入 + 0.975 微缩放,移植自 Book's Story;时长用全局
+ * Large 档,不照搬其 250ms)。顶栏在本组件内、动画子树外(静态背景层),仅内容区做 FadeThrough:
+ * 顶栏若随内容淡入淡出,交叉帧像素必然介于顶栏色与底色之间(黑闪,静态背景救不了顶栏自身),
+ * 且 scaleIn 起始帧顶栏未贴屏幕顶会露出与背景的色差缝。掉帧收益不依赖顶栏并入——2026-09-01
+ * 掉帧排查(四套动画并行各贡献 15-30ms 致单帧 100ms+)的真正解是状态读取隔离:顶栏动画与本
+ * 内容动画都在本隔离组件内,tab 切换只重启这里,AppRoot 不整体重组
+ */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun SectionContent(
+    sectionState: MutableState<AppSections>,
+    /** Scaffold innerPadding(含底栏高度):不应用则内容延伸到底栏下(全选/添加被盖、列表滚底被遮) */
+    contentPadding: PaddingValues,
+    books: List<Book>?,
+    shelfLayout: ShelfLayout,
+    selectedBookIds: Set<Long>,
+    searchActive: Boolean,
+    searchQuery: String,
+    onSearchQueryChange: (String) -> Unit,
+    onSearchToggle: (Boolean) -> Unit,
+    scrollToTopSignal: Int,
+    scrollToTopAnimatedSignal: Int,
+    onToggleSelect: (Book) -> Unit,
+    onAddBook: () -> Unit,
+    onOpenBook: (Book) -> Unit,
+    libraryDir: String?,
+    onSelectLibrary: () -> Unit,
+    onShowRenameDialog: () -> Unit,
+    onShowDeleteConfirm: () -> Unit,
+    onAbout: () -> Unit,
+    onSettings: () -> Unit,
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            // 静态背景兜底:旧页淡出时透出本底而非更深的 Scaffold 底色
+            .background(MaterialTheme.colorScheme.background)
+            .padding(contentPadding),
+    ) {
+        FolioTopBar(
+            titleRes = sectionState.value.labelRes,
+            actions = {
+                // 三态交叉淡化(原共享顶栏同款):书架 TAB=添加+overflow;阅读选择态=重命名/删除;
+                // 阅读普通态=搜索+overflow。固定两图标宽度防过渡期容器漂移
+                val topBarActionState = when {
+                    sectionState.value == AppSections.Library -> 0
+                    selectedBookIds.isNotEmpty() -> 1
+                    else -> 2
+                }
+                Crossfade(
+                    targetState = topBarActionState,
+                    animationSpec = tween(AnimationTokens.Large),
+                    modifier = Modifier.width(96.dp),
+                    label = "topBarActions",
+                ) { state ->
+                    // Crossfade 内容不在 RowScope:占满 Box 后用通用 align 靠右
+                    Box(modifier = Modifier.fillMaxSize()) {
+                        when (state) {
+                            0 -> {
+                                // 书架 TAB:手动添加(SAF 选文件)+ overflow(设置、关于)
+                                Row(modifier = Modifier.align(Alignment.CenterEnd)) {
+                                    TooltipBox(
+                                        positionProvider = rememberBelowTooltipPositionProvider(),
+                                        tooltip = { PlainTooltip { Text(stringResource(R.string.shelf_add_book)) } },
+                                        state = rememberTooltipState(),
+                                    ) {
+                                        IconButton(onClick = onAddBook) {
+                                            Icon(
+                                                painter = painterResource(R.drawable.ic_folder),
+                                                contentDescription = stringResource(R.string.shelf_add_book),
+                                            )
+                                        }
+                                    }
+                                    GlobalOverflowMenu(onAbout = onAbout, onSettings = onSettings)
+                                }
+                            }
+                            1 -> {
+                                // 选择态:重命名(仅单选时可用)+删除
+                                Row(modifier = Modifier.align(Alignment.CenterEnd)) {
+                                    AnimatedVisibility(
+                                        visible = selectedBookIds.size == 1,
+                                        enter = fadeIn(animationSpec = tween(AnimationTokens.Large)),
+                                        exit = fadeOut(animationSpec = tween(AnimationTokens.Large)),
+                                    ) {
+                                        TooltipBox(
+                                            positionProvider = rememberBelowTooltipPositionProvider(),
+                                            tooltip = { PlainTooltip { Text(stringResource(R.string.shelf_rename)) } },
+                                            state = rememberTooltipState(),
+                                        ) {
+                                            IconButton(onClick = onShowRenameDialog) {
+                                                Icon(
+                                                    painter = painterResource(R.drawable.ic_shelf_rename),
+                                                    contentDescription = stringResource(R.string.shelf_rename),
+                                                )
+                                            }
+                                        }
+                                    }
+                                    TooltipBox(
+                                        positionProvider = rememberBelowTooltipPositionProvider(),
+                                        tooltip = { PlainTooltip { Text(stringResource(R.string.shelf_delete)) } },
+                                        state = rememberTooltipState(),
+                                    ) {
+                                        IconButton(onClick = onShowDeleteConfirm) {
+                                            Icon(
+                                                painter = painterResource(R.drawable.ic_shelf_delete),
+                                                contentDescription = stringResource(R.string.shelf_delete),
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+                            else -> {
+                                // 阅读普通态:搜索 + overflow(设置、关于)
+                                Row(modifier = Modifier.align(Alignment.CenterEnd)) {
+                                    TooltipBox(
+                                        positionProvider = rememberBelowTooltipPositionProvider(),
+                                        tooltip = { PlainTooltip { Text(stringResource(R.string.search)) } },
+                                        state = rememberTooltipState(),
+                                    ) {
+                                        IconButton(onClick = { onSearchToggle(!searchActive) }) {
+                                            Icon(
+                                                painter = painterResource(R.drawable.ic_search),
+                                                contentDescription = stringResource(R.string.search),
+                                            )
+                                        }
+                                    }
+                                    GlobalOverflowMenu(onAbout = onAbout, onSettings = onSettings)
+                                }
+                            }
+                        }
+                    }
+                }
+            },
+        )
+        AnimatedContent(
+            targetState = sectionState.value,
+            transitionSpec = {
+                (fadeIn(tween(AnimationTokens.Large)) +
+                    scaleIn(tween(AnimationTokens.Large), initialScale = 0.975f))
+                    .togetherWith(fadeOut(tween(AnimationTokens.Large)))
+            },
+            modifier = Modifier.weight(1f),
+            label = "sectionContent",
+        ) { section ->
+            when (section) {
+                AppSections.Shelf -> ShelfScreen(
+                    books = books,
+                    shelfLayout = shelfLayout,
+                    selectedBookIds = selectedBookIds,
+                    searchActive = searchActive,
+                    searchQuery = searchQuery,
+                    onSearchQueryChange = onSearchQueryChange,
+                    scrollToTopSignal = scrollToTopSignal,
+                    scrollToTopAnimatedSignal = scrollToTopAnimatedSignal,
+                    onToggleSelect = onToggleSelect,
+                    onAddBook = onAddBook,
+                    onOpenBook = onOpenBook,
+                    modifier = Modifier.fillMaxSize(),
+                )
+                AppSections.Library -> LibraryAddScreen(
+                    libraryDir = libraryDir,
+                    onSelectLibrary = onSelectLibrary,
+                    modifier = Modifier.fillMaxSize(),
+                )
+            }
+        }
+    }
+}
+
+/**
+ * 顶栏 overflow 菜单(关于在上/设置在下,文本居中无图标):阅读与书架 TAB 顶栏共用。
+ * 原 AppRoot 局部函数;移出后覆盖层开关经回调写回(showSettings/showAbout 仍由 AppRoot 持有)
+ */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun GlobalOverflowMenu(onAbout: () -> Unit, onSettings: () -> Unit) {
+    var showSheet by remember { mutableStateOf(false) }
+    TooltipBox(
+        positionProvider = rememberBelowTooltipPositionProvider(),
+        tooltip = { PlainTooltip { Text(stringResource(R.string.shelf_more)) } },
+        state = rememberTooltipState(),
+    ) {
+        IconButton(onClick = { showSheet = true }) {
+            Icon(
+                painter = painterResource(R.drawable.ic_more_vert),
+                contentDescription = stringResource(R.string.shelf_more),
+            )
+        }
+    }
+    if (showSheet) {
+        // 跳过半展开:面板只保留完全展开/隐藏两个位置(与设置页各弹窗面板一致)
+        val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+        val sheetScope = rememberCoroutineScope()
+        ModalBottomSheet(
+            onDismissRequest = { showSheet = false },
+            sheetState = sheetState,
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 12.dp)
+                    .padding(top = 8.dp, bottom = 24.dp),
+                // 复用设置页条目样式(ListItem + 拼接卡),与 PageTurnSheet 等面板同款
+                verticalArrangement = Arrangement.spacedBy(groupItemSpacing),
+            ) {
+                // 条目点击:等收起动画播完再移除面板并打开对应覆盖层(直接移除会跳过退出动画)
+                fun closeThen(action: () -> Unit) {
+                    sheetScope.launch { sheetState.hide() }.invokeOnCompletion {
+                        showSheet = false
+                        action()
+                    }
+                }
+                ListItem(
+                    headlineContent = {
+                        Text(
+                            text = stringResource(R.string.settings_group_about),
+                            textAlign = TextAlign.Center,
+                            modifier = Modifier.fillMaxWidth(),
+                        )
+                    },
+                    colors = listItemColors(),
+                    modifier = Modifier
+                        .clip(groupItemShape(0, 2))
+                        .clickable { closeThen { onAbout() } },
+                )
+                ListItem(
+                    headlineContent = {
+                        Text(
+                            text = stringResource(R.string.nav_settings),
+                            textAlign = TextAlign.Center,
+                            modifier = Modifier.fillMaxWidth(),
+                        )
+                    },
+                    colors = listItemColors(),
+                    modifier = Modifier
+                        .clip(groupItemShape(1, 2))
+                        .clickable { closeThen { onSettings() } },
+                )
+            }
+        }
+    }
+}
+
+/**
+ * 进入书架页自动同步:阅读 tab 从不可见变为可见(无覆盖层 + 阅读 tab 选中)时触发,节流 10s。
+ * 状态读取隔离在此:tab 切换只重启本组件,AppRoot 不整体重组(2026-09-01 掉帧排查)
+ */
+@Composable
+private fun ShelfAutoSyncEffect(
+    sectionState: MutableState<AppSections>,
+    readerBookId: Long?,
+    showLicenses: Boolean,
+    showSettings: Boolean,
+    showAbout: Boolean,
+    onSync: () -> Unit,
+) {
+    val shelfVisible = sectionState.value == AppSections.Shelf &&
+        readerBookId == null && !showLicenses && !showSettings && !showAbout
+    var wasShelfVisible by remember { mutableStateOf(false) }
+    var lastAutoSyncAt by remember { mutableStateOf(0L) }
+    LaunchedEffect(shelfVisible) {
+        if (shelfVisible && !wasShelfVisible) {
+            val now = SystemClock.uptimeMillis()
+            if (now - lastAutoSyncAt >= AUTO_SYNC_THROTTLE_MS) {
+                lastAutoSyncAt = now
+                onSync()
+            }
+        }
+        wasShelfVisible = shelfVisible
+    }
+}
+
+/**
+ * tab 相关返回键:搜索展开时收起搜索(仅书架 tab 生效,设置页按返回仍切回书架);
+ * 书架 TAB 返回切回阅读 tab(返回手势语义=回到上一界面,而非退出应用)。
+ * 状态读取隔离在此:tab 切换只重启本组件,AppRoot 不整体重组(2026-09-01 掉帧排查)
+ */
+@Composable
+private fun TabBackHandlers(
+    sectionState: MutableState<AppSections>,
+    searchActive: Boolean,
+    onCollapseSearch: () -> Unit,
+) {
+    BackHandler(enabled = searchActive && sectionState.value == AppSections.Shelf) {
+        onCollapseSearch()
+    }
+    BackHandler(enabled = sectionState.value == AppSections.Library) {
+        sectionState.value = AppSections.Shelf
     }
 }

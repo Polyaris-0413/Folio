@@ -1,11 +1,14 @@
 package com.folio.read.ui.components
 
+import androidx.annotation.DrawableRes
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.Icon
 import androidx.compose.material3.ListItemColors
 import androidx.compose.material3.ListItemDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.graphics.Shape
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 
@@ -90,4 +93,14 @@ fun groupItemShape(index: Int, count: Int): Shape = when {
     index == 0 -> leadingItemShape()
     index == count - 1 -> endItemShape()
     else -> middleItemShape()
+}
+
+/** 设置/关于列表项前置图标:统一尺寸与色调(原为 SettingsScreen 私有,关于页拆分后提升共用) */
+@Composable
+fun SettingsIcon(@DrawableRes iconRes: Int) {
+    Icon(
+        painter = painterResource(iconRes),
+        contentDescription = null,
+        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+    )
 }

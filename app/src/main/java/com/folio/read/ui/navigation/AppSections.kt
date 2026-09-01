@@ -15,11 +15,11 @@ enum class AppSections(
     @DrawableRes val selectedIconRes: Int,
 ) {
     Shelf(R.string.nav_shelf, R.drawable.ic_book, R.drawable.ic_book_filled),
-    Settings(R.string.nav_settings, R.drawable.ic_nav_settings, R.drawable.ic_nav_settings_filled),
+    Library(R.string.nav_shelf_library, R.drawable.ic_shelves, R.drawable.ic_shelves_filled),
 }
 
-/** 底栏显示顺序:书架 → 设置 */
+/** 底栏显示顺序:阅读 → 书架 */
 val mainRoutes: List<AppSections> = listOf(
     AppSections.Shelf,
-    AppSections.Settings,
+    AppSections.Library,
 )

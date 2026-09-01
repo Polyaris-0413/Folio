@@ -1,6 +1,7 @@
-// Baseline Profile 录制模块(producer):真机跑 BaselineProfileGenerator 仪器测试,
+// Baseline Profile 录制模块(producer):跑 BaselineProfileGenerator 仪器测试,
 // 把真实用到的类/方法录成 baseline-prof.txt,由 :app 的 generateBaselineProfile 消费并合并。
-// 运行:./gradlew :app:generateBaselineProfile(自动用已连接真机,设备需 Android 13+ 或 root)
+// 运行:./gradlew :app:generateBaselineProfile(设备需 Android 13+ 或 root)。
+// 注意:须用虚拟机(模拟器)录制,真机跑会有问题(2026-09-01 用户实测;此前的"自动用已连接真机"说法与实际不符)
 plugins {
     id("com.android.test")
     alias(libs.plugins.androidx.baselineprofile)

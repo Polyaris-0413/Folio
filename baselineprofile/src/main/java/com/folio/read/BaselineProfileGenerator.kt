@@ -7,9 +7,10 @@ import org.junit.Test
 import org.junit.runner.RunWith
 
 /**
- * 录制 Baseline Profile:真机按真实路径操作 App(冷启动→书架滑动→进书翻页→返回→切设置),
+ * 录制 Baseline Profile:按真实路径操作 App(冷启动→书架滑动→进书翻页→返回→切设置),
  * 系统记录实际用到的类/方法,生成比手写清单更精确的 baseline-prof.txt。
- * 运行:./gradlew :app:generateBaselineProfile(自动用已连接真机,设备需 Android 13+ 或 root)
+ * 运行:./gradlew :app:generateBaselineProfile(设备需 Android 13+ 或 root)。
+ * 注意:须用虚拟机(模拟器)录制,真机跑会有问题(2026-09-01 用户实测;此前的"自动用已连接真机"说法与实际不符)
  * 产物:自动复制到 app/src/release/generated/baselineProfiles/baseline-prof.txt
  * (release 变体专属源集,与 src/main 手写版共存:release 用录制版,其他变体用手写版)
  */

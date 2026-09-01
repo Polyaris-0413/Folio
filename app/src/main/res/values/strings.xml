@@ -1,6 +1,7 @@
 <resources>
     <string name="app_name">拾页</string>
     <string name="nav_shelf">阅读</string>
+    <string name="nav_shelf_library">书架</string>
     <string name="nav_settings">设置</string>
     <string name="settings_appearance_group">外观</string>
     <string name="settings_follow_system_theme">系统主题</string>
@@ -11,7 +12,6 @@
     <string name="settings_group_ai">AI</string>
     <string name="settings_ai_key">配置 API Key</string>
     <string name="settings_ai_title_clean">书名净化</string>
-    <string name="ai_dialog_title">AI 配置</string>
     <string name="ai_key_label">API Key</string>
     <string name="ai_key_hint">必填</string>
     <string name="ai_base_url_label">API 地址</string>
@@ -69,9 +69,8 @@
     <string name="toc">目录</string>
     <string name="shelf_add_book">手动添加</string>
     <string name="shelf_add_library">选择书架</string>
-    <string name="shelf_add_from_library">书架添加</string>
     <string name="shelf_add_duplicate">这本书已在书架中</string>
-    <string name="library_add_title">书架添加</string>
+    <string name="library_dir_empty_hint">尚未选择书架目录\n选择后即可从目录中勾选书籍加入书架</string>
     <string name="library_scan_empty">该目录下没有找到 txt 文件</string>
     <string name="library_add_selected">添加选中</string>
     <string name="library_add_skipped">已跳过 %1$d 本重复书籍</string>
