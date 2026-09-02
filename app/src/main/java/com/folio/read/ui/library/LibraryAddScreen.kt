@@ -26,8 +26,10 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.gestures.animateScrollBy
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Button
 import androidx.compose.material3.Checkbox
@@ -40,17 +42,20 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
@@ -227,10 +232,38 @@ fun LibraryAddScreen(
             Column(modifier = Modifier.fillMaxSize()) {
                 // 列表常驻:LazyColumn 容器不随扫描状态整树切换(曾用 Crossfade 切三态,扫描完成时
                 // 整树重建+淡入 → 实测 157ms 掉帧),数据到只增量插入 item,首帧成本摊薄
+                val listState = rememberLazyListState()
+                val density = LocalDensity.current
+                // 勾选从无到有且列表正停在底部:底部让位(80dp)比原 16dp 多出的 64dp 滚动
+                // 余量自动滚掉,被操作条盖住的末项顶到条上方——用户只管勾,不需要手动再拉
+                // (用户反馈)。
+                // 「是否在底部」由滚动监听持续记录:补偿逻辑运行时新 padding 已布局,
+                // canScrollForward 读到的是让位后的 true,不能用当场合,必须读勾选前的记录
+                var wasAtBottomBeforeSelection by remember { mutableStateOf(false) }
+                LaunchedEffect(listState) {
+                    snapshotFlow { listState.canScrollForward }.collect { forward ->
+                        wasAtBottomBeforeSelection = !forward
+                    }
+                }
+                var hadSelection by remember { mutableStateOf(false) }
+                LaunchedEffect(LibraryBrowserCache.selected) {
+                    val hasSelection = LibraryBrowserCache.selected.isNotEmpty()
+                    if (hasSelection && !hadSelection && wasAtBottomBeforeSelection) {
+                        withFrameNanos { } // 等让位 padding 的布局落地,滚动余量就绪后再滚
+                        listState.animateScrollBy(with(density) { 64.dp.toPx() })
+                    }
+                    hadSelection = hasSelection
+                }
                 LazyColumn(
+                    state = listState,
                     modifier = Modifier.weight(1f),
-                    // 间距对齐阅读页 16dp 体系:顶栏→首项/条目间/尾项→底,两页列表语言统一
-                    contentPadding = PaddingValues(top = 16.dp, bottom = 16.dp),
+                    // 间距对齐阅读页 16dp 体系:顶栏→首项/条目间/尾项→底,两页列表语言统一。
+                    // 勾选时底部让位 80dp(操作条 48 + 距底 12 + 原 16):浮出操作条会遮挡
+                    // 列表末项,让位后末项可滚到条上方完整可见;无勾选时保持原 16dp
+                    contentPadding = PaddingValues(
+                        top = 16.dp,
+                        bottom = if (LibraryBrowserCache.selected.isEmpty()) 16.dp else 80.dp,
+                    ),
                     verticalArrangement = Arrangement.spacedBy(16.dp),
                 ) {
                     when {
