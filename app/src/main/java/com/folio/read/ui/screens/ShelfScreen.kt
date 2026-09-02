@@ -47,7 +47,6 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import android.util.Log
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -117,10 +116,6 @@ fun ShelfScreen(
     }
     // 搜索中=展开且有关键词(防抖后);空关键词时网格照常显示全部(过滤只在有关键词时生效)
     val searching = searchActive && debouncedQuery.isNotBlank()
-    // debug:搜索动画 BUG 排查日志(可见性状态翻转)
-    LaunchedEffect(searchActive) {
-        Log.w("FolioSearch", "searchActive=$searchActive")
-    }
     Column(
         modifier = modifier
             .fillMaxSize()
@@ -138,7 +133,6 @@ fun ShelfScreen(
             // 保证字段已组合后 requestFocus 才生效
             val focusRequester = remember { FocusRequester() }
             LaunchedEffect(Unit) {
-                Log.w("FolioSearch", "search field composed, request focus (keyboard up)")
                 focusRequester.requestFocus()
             }
             // 搜索框层背景=surfaceContainer(与顶栏同层):书向上滚动滑入本层后面时,

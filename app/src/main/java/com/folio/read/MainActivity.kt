@@ -10,7 +10,6 @@ import android.content.Intent
 import android.net.Uri
 import android.os.Bundle
 import android.os.SystemClock
-import android.util.Log
 import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -266,8 +265,7 @@ private fun AppRoot(
                 t.endsWith(".mobi", true) || t.contains("z-lib", true) || t.contains("1lib", true) ||
                 t.contains("librs", true) || t.contains("libgen", true)
         }.forEach { b ->
-            val cleaned = BookTitleParser.parse(b.title)
-                .ifBlank { b.title.substringBeforeLast('.').ifBlank { b.title } }
+            val cleaned = BookTitleParser.parseFileName(b.title)
             if (cleaned != b.title) appScope.launch { bookRepo.rename(b.id, cleaned) }
         }
     }
@@ -581,8 +579,6 @@ private fun AppRoot(
                     searchQuery = searchQuery,
                     onSearchQueryChange = { searchQuery = it },
                     onSearchToggle = { expand ->
-                        // debug:搜索动画 BUG 排查日志(状态链路)
-                        Log.w("FolioSearch", "toggle expand=$expand")
                         if (expand) {
                             showSearch = true
                         } else {
@@ -590,7 +586,6 @@ private fun AppRoot(
                             showSearch = false
                             searchQuery = ""
                             keyboard?.hide()
-                            Log.w("FolioSearch", "keyboard hide() called")
                         }
                     },
                     scrollToTopSignal = scrollToTopSignal,
@@ -634,11 +629,9 @@ private fun AppRoot(
                 sectionState = selectedSectionState,
                 searchActive = showSearch,
                 onCollapseSearch = {
-                    Log.w("FolioSearch", "collapse called (back handler)")
                     showSearch = false
                     searchQuery = ""
                     keyboard?.hide()
-                    Log.w("FolioSearch", "keyboard hide() called")
                 },
             )
 
@@ -656,7 +649,6 @@ private fun AppRoot(
                     selectedSectionState.value == AppSections.Library ||
                     showSettings || showAbout || showLicenses
                 if (searchState.value && leftReading) {
-                    Log.w("FolioSearch", "auto collapse (left reading page)")
                     searchState.value = false
                     searchQueryState.value = ""
                     keyboard?.hide()
@@ -836,17 +828,6 @@ private fun AppRoot(
                     )
                 }
             }
-            // 许可页覆盖层:与阅读页同模式,main 保持存活,退出不重组
-            AnimatedVisibility(
-                visible = showLicenses,
-                modifier = Modifier.fillMaxSize(),
-                enter = fadeIn(tween(AnimationTokens.XL)) +
-                    slideInHorizontally(tween(AnimationTokens.XL)) { it / 16 },
-                exit = fadeOut(tween(AnimationTokens.XL)) +
-                    slideOutHorizontally(tween(AnimationTokens.XL)) { it / 16 },
-            ) {
-                LicensesScreen(onBack = { showLicenses = false })
-            }
             // 设置页覆盖层:与阅读页同模式,main 保持存活,退出不重组
             AnimatedVisibility(
                 visible = showSettings,
@@ -918,6 +899,19 @@ private fun AppRoot(
                     onBack = { showAbout = false },
                     onOpenLicenses = { showLicenses = true },
                 )
+            }
+            // 许可页覆盖层:关于页的子页,必须声明在关于页之后——覆盖层声明顺序=绘制
+            // z 序,子页要压在父页之上;曾声明在设置页之前,从关于页打开时被关于页整层
+            // 遮挡(回调正常执行、无异常日志,表象是「点开源声明没反应」)
+            AnimatedVisibility(
+                visible = showLicenses,
+                modifier = Modifier.fillMaxSize(),
+                enter = fadeIn(tween(AnimationTokens.XL)) +
+                    slideInHorizontally(tween(AnimationTokens.XL)) { it / 16 },
+                exit = fadeOut(tween(AnimationTokens.XL)) +
+                    slideOutHorizontally(tween(AnimationTokens.XL)) { it / 16 },
+            ) {
+                LicensesScreen(onBack = { showLicenses = false })
             }
             }
             }

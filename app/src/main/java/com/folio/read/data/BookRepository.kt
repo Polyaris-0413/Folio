@@ -41,8 +41,7 @@ class BookRepository(context: Context) {
      */
     suspend fun addBook(uri: Uri): Book? {
         val name = queryDisplayName(uri) ?: appContext.getString(R.string.unnamed)
-        val title = BookTitleParser.parse(name)
-            .ifBlank { name.substringBeforeLast('.').ifBlank { name } }
+        val title = BookTitleParser.parseFileName(name)
         val book = Book(
             title = title,
             filePath = uri.toString(),

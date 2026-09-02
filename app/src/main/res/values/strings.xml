@@ -56,6 +56,8 @@
     <string name="settings_about_licenses">开源声明</string>
     <string name="settings_about_sponsor">赞助作者</string>
     <string name="settings_about_licenses_empty">暂无开源协议信息</string>
+    <string name="settings_about_version">版本</string>
+    <string name="about_diagnostics_copied">反馈信息已复制</string>
     <string name="settings_about_update">检查更新</string>
     <string name="update_checking">正在检查更新…</string>
     <string name="update_latest">已是最新版本</string>
@@ -71,6 +73,10 @@
     <string name="shelf_add_library">选择书架</string>
     <string name="shelf_add_duplicate">这本书已在书架中</string>
     <string name="library_dir_empty_title">尚未选择书架目录</string>
+    <string name="library_dir_no_books">当前目录暂无书籍</string>
+    <string name="about_group_app">应用</string>
+    <string name="about_group_project">项目</string>
+    <string name="about_group_legal">法律信息</string>
     <string name="library_add_selected">添加选中</string>
     <string name="library_selected_prefix">已选</string>
     <string name="library_selected_suffix">本</string>
@@ -84,7 +90,6 @@
     <string name="book_open_failed_title">无法打开这本书</string>
     <string name="book_open_failed_message">文件可能已被移动、删除或改名;\n若你确认文件仍在手机中;可先从书架移除这本书,再重新添加</string>
     <string name="book_open_failed_ok">知道了</string>
-    <string name="toc_load_failed">无法打开文件</string>
     <string name="reader_tts">朗读</string>
     <string name="tts_pause">暂停</string>
     <string name="tts_resume">继续</string>

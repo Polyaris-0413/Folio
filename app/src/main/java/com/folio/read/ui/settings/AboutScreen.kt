@@ -1,6 +1,9 @@
 package com.folio.read.ui.settings
 
+import android.content.ClipData
+import android.content.ClipboardManager
 import android.content.Intent
+import android.os.Build
 import android.net.Uri
 import android.widget.Toast
 import androidx.activity.compose.BackHandler
@@ -104,89 +107,161 @@ fun AboutScreen(
                 verticalArrangement = Arrangement.spacedBy(groupTitleSpacing),
             ) {
                 item {
-                    Column(verticalArrangement = Arrangement.spacedBy(groupItemSpacing)) {
-                        ListItem(
-                            headlineContent = { Text(text = stringResource(R.string.settings_about_update)) },
-                            leadingContent = { SettingsIcon(R.drawable.ic_settings_update) },
-                            trailingContent = {
-                                Icon(
-                                    painter = painterResource(R.drawable.ic_arrow_right),
-                                    contentDescription = null,
-                                )
-                            },
-                            colors = listItemColors(),
-                            modifier = Modifier
-                                .clip(groupItemShape(0, 5))
-                                .clickable { checkUpdate() },
+                    val context = LocalContext.current
+                    // 版本号随构建变化,remember 一次即可;失败兜底空串(与检查更新同口径)
+                    val versionName = remember {
+                        runCatching {
+                            context.packageManager.getPackageInfo(context.packageName, 0).versionName
+                        }.getOrNull().orEmpty()
+                    }
+                    Column {
+                        // 分组标题与设置页同款:labelLarge 弱化色,start 16dp 与卡片文字对齐
+                        Text(
+                            text = stringResource(R.string.about_group_app),
+                            style = MaterialTheme.typography.labelLarge,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.padding(start = 16.dp, bottom = groupTitleSpacing),
                         )
-                        ListItem(
-                            headlineContent = { Text(text = stringResource(R.string.settings_about_repo)) },
-                            leadingContent = { SettingsIcon(R.drawable.ic_settings_source) },
-                            trailingContent = {
-                                Icon(
-                                    painter = painterResource(R.drawable.ic_arrow_right),
-                                    contentDescription = null,
-                                )
-                            },
-                            colors = listItemColors(),
-                            modifier = Modifier
-                                .clip(groupItemShape(1, 5))
-                                .clickable {
-                                    context.startActivity(
-                                        Intent(Intent.ACTION_VIEW, Uri.parse(GITHUB_REPO_URL)),
+                        Column(verticalArrangement = Arrangement.spacedBy(groupItemSpacing)) {
+                            ListItem(
+                                headlineContent = { Text(text = stringResource(R.string.settings_about_version)) },
+                                leadingContent = { SettingsIcon(R.drawable.ic_build_circle) },
+                                trailingContent = {
+                                    Text(
+                                        text = versionName,
+                                        style = MaterialTheme.typography.bodyMedium,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
                                     )
                                 },
-                        )
-                        ListItem(
-                            headlineContent = { Text(text = stringResource(R.string.settings_about_sponsor)) },
-                            leadingContent = { SettingsIcon(R.drawable.ic_settings_sponsor) },
-                            trailingContent = {
-                                Icon(
-                                    painter = painterResource(R.drawable.ic_arrow_right),
-                                    contentDescription = null,
-                                )
-                            },
-                            colors = listItemColors(),
-                            modifier = Modifier
-                                .clip(groupItemShape(2, 5))
-                                .clickable {
-                                    context.startActivity(
-                                        Intent(Intent.ACTION_VIEW, Uri.parse("https://ifdian.net/a/Polyaris")),
+                                colors = listItemColors(),
+                                // 点击复制反馈诊断信息:应用版本+系统版本+设备型号,是排查
+                                // BUG 的最小充分集(ROM 差异是阅读器类常见 BUG 根源);
+                                // 不塞日志/阅读记录等内容,避免隐私与噪声
+                                modifier = Modifier
+                                    .clip(groupItemShape(0, 2))
+                                    .clickable {
+                                        val diagnostics = buildString {
+                                            appendLine("版本:${versionName}")
+                                            appendLine("系统:Android ${Build.VERSION.RELEASE}(API ${Build.VERSION.SDK_INT})")
+                                            append("设备:${Build.MANUFACTURER.trim()} ${Build.MODEL.trim()}")
+                                        }
+                                        context.getSystemService(ClipboardManager::class.java)
+                                            .setPrimaryClip(ClipData.newPlainText("diagnostics", diagnostics))
+                                        Toast.makeText(
+                                            context,
+                                            context.getString(R.string.about_diagnostics_copied),
+                                            Toast.LENGTH_SHORT,
+                                        ).show()
+                                    },
+                            )
+                            ListItem(
+                                headlineContent = { Text(text = stringResource(R.string.settings_about_update)) },
+                                leadingContent = { SettingsIcon(R.drawable.ic_settings_update) },
+                                trailingContent = {
+                                    Icon(
+                                        painter = painterResource(R.drawable.ic_arrow_right),
+                                        contentDescription = null,
                                     )
                                 },
+                                colors = listItemColors(),
+                                modifier = Modifier
+                                    .clip(groupItemShape(1, 2))
+                                    .clickable { checkUpdate() },
+                            )
+                        }
+                    }
+                }
+                item {
+                    Column {
+                        Text(
+                            text = stringResource(R.string.about_group_project),
+                            style = MaterialTheme.typography.labelLarge,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.padding(start = 16.dp, bottom = groupTitleSpacing),
                         )
-                        ListItem(
-                            headlineContent = { Text(text = stringResource(R.string.settings_about_feedback)) },
-                            leadingContent = { SettingsIcon(R.drawable.ic_settings_feedback) },
-                            trailingContent = {
-                                Icon(
-                                    painter = painterResource(R.drawable.ic_arrow_right),
-                                    contentDescription = null,
-                                )
-                            },
-                            colors = listItemColors(),
-                            modifier = Modifier
-                                .clip(groupItemShape(3, 5))
-                                .clickable {
-                                    context.startActivity(
-                                        Intent(Intent.ACTION_VIEW, Uri.parse(GITHUB_ISSUES_URL)),
+                        Column(verticalArrangement = Arrangement.spacedBy(groupItemSpacing)) {
+                            ListItem(
+                                headlineContent = { Text(text = stringResource(R.string.settings_about_repo)) },
+                                leadingContent = { SettingsIcon(R.drawable.ic_settings_source) },
+                                trailingContent = {
+                                    Icon(
+                                        painter = painterResource(R.drawable.ic_arrow_right),
+                                        contentDescription = null,
                                     )
                                 },
+                                colors = listItemColors(),
+                                modifier = Modifier
+                                    .clip(groupItemShape(0, 3))
+                                    .clickable {
+                                        context.startActivity(
+                                            Intent(Intent.ACTION_VIEW, Uri.parse(GITHUB_REPO_URL)),
+                                        )
+                                    },
+                            )
+                            ListItem(
+                                headlineContent = { Text(text = stringResource(R.string.settings_about_sponsor)) },
+                                leadingContent = { SettingsIcon(R.drawable.ic_settings_sponsor) },
+                                trailingContent = {
+                                    Icon(
+                                        painter = painterResource(R.drawable.ic_arrow_right),
+                                        contentDescription = null,
+                                    )
+                                },
+                                colors = listItemColors(),
+                                modifier = Modifier
+                                    .clip(groupItemShape(1, 3))
+                                    .clickable {
+                                        context.startActivity(
+                                            Intent(Intent.ACTION_VIEW, Uri.parse("https://ifdian.net/a/Polyaris")),
+                                        )
+                                    },
+                            )
+                            ListItem(
+                                headlineContent = { Text(text = stringResource(R.string.settings_about_feedback)) },
+                                leadingContent = { SettingsIcon(R.drawable.ic_settings_feedback) },
+                                trailingContent = {
+                                    Icon(
+                                        painter = painterResource(R.drawable.ic_arrow_right),
+                                        contentDescription = null,
+                                    )
+                                },
+                                colors = listItemColors(),
+                                modifier = Modifier
+                                    .clip(groupItemShape(2, 3))
+                                    .clickable {
+                                        context.startActivity(
+                                            Intent(Intent.ACTION_VIEW, Uri.parse(GITHUB_ISSUES_URL)),
+                                        )
+                                    },
+                            )
+                        }
+                    }
+                }
+                item {
+                    // 组间 16dp:LazyColumn 条目间距 8dp + 本组 top 8dp
+                    Column(modifier = Modifier.padding(top = 8.dp)) {
+                        Text(
+                            text = stringResource(R.string.about_group_legal),
+                            style = MaterialTheme.typography.labelLarge,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.padding(start = 16.dp, bottom = groupTitleSpacing),
                         )
-                        ListItem(
-                            headlineContent = { Text(text = stringResource(R.string.settings_about_licenses)) },
-                            leadingContent = { SettingsIcon(R.drawable.ic_settings_license) },
-                            trailingContent = {
-                                Icon(
-                                    painter = painterResource(R.drawable.ic_arrow_right),
-                                    contentDescription = null,
-                                )
-                            },
-                            colors = listItemColors(),
-                            modifier = Modifier
-                                .clip(groupItemShape(4, 5))
-                                .clickable { onOpenLicenses() },
-                        )
+                        Column(verticalArrangement = Arrangement.spacedBy(groupItemSpacing)) {
+                            ListItem(
+                                headlineContent = { Text(text = stringResource(R.string.settings_about_licenses)) },
+                                leadingContent = { SettingsIcon(R.drawable.ic_settings_license) },
+                                trailingContent = {
+                                    Icon(
+                                        painter = painterResource(R.drawable.ic_arrow_right),
+                                        contentDescription = null,
+                                    )
+                                },
+                                colors = listItemColors(),
+                                modifier = Modifier
+                                    .clip(groupItemShape(0, 1))
+                                    .clickable { onOpenLicenses() },
+                            )
+                        }
                     }
                 }
             }

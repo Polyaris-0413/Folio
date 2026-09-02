@@ -38,6 +38,22 @@ class BookTitleParserTest {
     }
 
     @Test
+    fun `文件名解析结果为空时兜底去扩展名`() {
+        // 全噪声文件名((1))解析为空,兜底取去扩展名后的原名
+        assertEquals("(1)", BookTitleParser.parseFileName("(1).txt"))
+    }
+
+    @Test
+    fun `文件名解析正常时不走兜底`() {
+        assertEquals("三体", BookTitleParser.parseFileName("三体全集.txt"))
+    }
+
+    @Test
+    fun `文件名双重兜底返回原名`() {
+        assertEquals("", BookTitleParser.parseFileName(""))
+    }
+
+    @Test
     fun `前缀序号不误伤 2_5 小数书名`() {
         assertEquals("2.5次元的诱惑", BookTitleParser.parse("2.5次元的诱惑.txt"))
     }

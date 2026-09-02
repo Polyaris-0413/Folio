@@ -4,6 +4,7 @@ import android.net.Uri
 import android.os.SystemClock
 import android.util.Log
 import android.widget.Toast
+import androidx.annotation.StringRes
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.tween
@@ -150,8 +151,7 @@ private suspend fun scanAndBake(repo: LibraryRepository, dir: String): List<File
     // 展示模型后台预烘焙:渐变(HCT)/净化/大小格式化移出组合帧
     result.map { f ->
         val uri = f.uri.toString()
-        val cleanName = BookTitleParser.parse(f.name)
-            .ifBlank { f.name.substringBeforeLast('.').ifBlank { f.name } }
+        val cleanName = BookTitleParser.parseFileName(f.name)
         FileRow(
             file = f,
             uri = uri,
@@ -219,7 +219,10 @@ fun LibraryAddScreen(
         // 两空态间与扫描中都无树切换,仅「空↔有候选」边界硬切一次(轻量树+无过渡动画,
         // 与旧 Crossfade 三态切换的整树重建+淡入掉帧场景不同质)
         if (libraryDir == null || list?.isEmpty() == true) {
-            LibraryEmptyState(onSelectLibrary = onSelectLibrary)
+            LibraryEmptyState(
+                onSelectLibrary = onSelectLibrary,
+                barTextRes = libraryEmptyBarTextRes(hasLibraryDir = libraryDir != null),
+            )
         } else {
             Column(modifier = Modifier.fillMaxSize()) {
                 // 列表常驻:LazyColumn 容器不随扫描状态整树切换(曾用 Crossfade 切三态,扫描完成时
@@ -406,14 +409,20 @@ private fun formatFileSize(bytes: Long): String = when {
     else -> "$bytes B"
 }
 
+/** 书库空态 bar 文案:未选目录=引导登记目录;已选目录无书=说明目录现状(按钮均可换目录) */
+internal fun libraryEmptyBarTextRes(hasLibraryDir: Boolean): Int =
+    if (hasLibraryDir) R.string.library_dir_no_books else R.string.library_dir_empty_title
+
 /**
  * 书库空态:图标+标题居中(与书架页空态同构同位——两页空态文本切 tab 严格并排),
  * 「选择书架」为底部 contextual bar(与勾选操作条同款视觉语言:书架页需要行动时,
- * 浮动条从 TAB 栏上方浮出)。「未选目录」与「已选目录但无候选书」两场景共用。
+ * 浮动条从 TAB 栏上方浮出)。「未选目录」与「已选目录但无候选书」两场景共用,
+ * bar 文案由 [libraryEmptyBarTextRes] 按场景给出。
  */
 @Composable
 private fun LibraryEmptyState(
     onSelectLibrary: () -> Unit,
+    @StringRes barTextRes: Int,
     modifier: Modifier = Modifier,
 ) {
     Box(modifier = modifier.fillMaxSize()) {
@@ -447,7 +456,7 @@ private fun LibraryEmptyState(
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Text(
-                    text = stringResource(R.string.library_dir_empty_title),
+                    text = stringResource(barTextRes),
                     style = MaterialTheme.typography.labelLarge,
                     modifier = Modifier.weight(1f),
                 )

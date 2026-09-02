@@ -70,6 +70,14 @@ object BookTitleParser {
         return cleanNoise(name.replace(nameRegex, "").trim { it <= ' ' })
     }
 
+    /**
+     * 从文件名取书名的统一入口:解析结果为空时兜底去扩展名,仍空则保留原名。
+     * 仓库入库/书库候选/存量书名修复共用,兜底规则改动只需改此处
+     */
+    fun parseFileName(fileName: String): String =
+        parse(fileName)
+            .ifBlank { fileName.substringBeforeLast('.').ifBlank { fileName } }
+
     /** 只去已知文件扩展名(.txt/.epub/.azw3/.mobi),防止把书名内部小数点(如 z-lib.sk 的 .sk)误当扩展名截掉 */
     private fun stripKnownExt(fileName: String): String {
         val exts = listOf("txt", "epub", "azw3", "mobi")
