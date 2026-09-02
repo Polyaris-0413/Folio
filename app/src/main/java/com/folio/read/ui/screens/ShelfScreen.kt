@@ -6,6 +6,7 @@ package com.folio.read.ui.screens
  * SPDX-License-Identifier: GPL-3.0-only
  */
 
+import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.animateFloatAsState
@@ -13,6 +14,7 @@ import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
+import androidx.compose.animation.togetherWith
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.Image
@@ -102,8 +104,6 @@ fun ShelfScreen(
     onOpenBook: (Book) -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    // 显式滚动状态:读过书返回时滚回顶部(见下方 LaunchedEffect),切 tab 不触发保持位置
-    val gridState = rememberLazyGridState()
     // 搜索过滤防抖:IME 逐字上屏会连续触发过滤 diff(每次都是全列表剧变,离场/重排动画错位),
     // 停止输入 300ms 后才应用关键词;清空关键词立即恢复,不防抖
     var debouncedQuery by remember { mutableStateOf(searchQuery) }
@@ -117,9 +117,6 @@ fun ShelfScreen(
     }
     // 搜索中=展开且有关键词(防抖后);空关键词时网格照常显示全部(过滤只在有关键词时生效)
     val searching = searchActive && debouncedQuery.isNotBlank()
-    // 实时动画开关:开始打字立即禁用条目动画——离场动画按 item 最后一次组合的 specs 启动,
-    // 必须赶在过滤 diff(防抖后)发生前让 null specs 送达所有在册条目,否则离场书仍会飞
-    val animDisabled = searchActive && searchQuery.isNotBlank()
     // debug:搜索动画 BUG 排查日志(可见性状态翻转)
     LaunchedEffect(searchActive) {
         Log.w("FolioSearch", "searchActive=$searchActive")
@@ -174,55 +171,67 @@ fun ShelfScreen(
                     // 自适应:单元格最小 152dp,保证封面与两行书名有足够宽度,避免列数过多文字被截断
                     ShelfLayoutMode.ADAPTIVE -> GridCells.Adaptive(minSize = 152.dp)
                 }
-                // 当前结果集(按书名过滤,忽略大小写)
+                // 当前结果集(按书名过滤,忽略大小写):空态判断用;网格渲染在下方 AnimatedContent 内
                 val displayBooks = if (searching) {
                     books.filter { it.title.contains(debouncedQuery, ignoreCase = true) }
                 } else {
                     books
                 }
-                // 过滤生效时滚回顶部,与过滤 diff 同帧应用——若提前于过滤(绑实时 query),
-                // 打字瞬间会先闪现"全量列表顶部"再跳成结果,暴露中间态(用户实测二次搜索必现)
-                LaunchedEffect(debouncedQuery) {
-                    if (searching) gridState.scrollToItem(0)
-                }
-                // 读过书返回/自动同步新增书:平滑滚顶到 item 0。
-                // 曾用 scrollToItem(0)(瞬移):会打断 books 重排的 placement 位移动画,
-                // 书多时书本从原位置滑到第一位的过程被瞬移掩盖(用户反馈「位移动画只有书少才可见」)。
-                LaunchedEffect(scrollToTopSignal, scrollToTopAnimatedSignal, books) {
-                    if ((scrollToTopSignal > 0 || scrollToTopAnimatedSignal > 0) && books != null) {
-                        gridState.animateScrollToItem(0)
-                    }
-                }
-                LazyVerticalGrid(
-                    columns = columns,
-                    state = gridState,
+                // 搜索词变化=全新结果集:旧结果网格整体淡出、新结果网格整体淡入(容器级过渡)。
+                // 不用逐条目 animateItem 承担过滤过渡——LazyGrid 离场书的位置由新布局决定,
+                // "列表骤减+滚动回弹"下离场书会错位(实测搜「三体」时未匹配的书跳到列表顶部
+                // 再淡出);容器级过渡与此机制无关,天然无错位。
+                // 各分支网格独立:过渡期间旧树按旧词冻结渲染,新树从顶部开始,滚动互不干扰
+                AnimatedContent(
+                    targetState = debouncedQuery,
+                    transitionSpec = {
+                        fadeIn(tween(AnimationTokens.Medium)) togetherWith
+                            fadeOut(tween(AnimationTokens.Medium))
+                    },
                     modifier = Modifier.fillMaxSize(),
-                    contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 16.dp, bottom = 16.dp),
-                    horizontalArrangement = Arrangement.spacedBy(12.dp),
-                    verticalArrangement = Arrangement.spacedBy(16.dp),
-                ) {
-                    items(displayBooks, key = { it.id }) { book ->
-                        val selected = book.id in selectedBookIds
-                        // 搜索打字期间(animDisabled,实时)动画即禁用:离场动画按 item 最后一次
-                        // 组合的 specs 启动,过滤 diff(防抖后)发生时离场书已不在新列表、收不到新
-                        // specs——若那之前最后一次组合还是带动画配置,离场书会飞(错位根因)。
-                        // 故 specs 跟随实时 animDisabled 而非防抖后的 searching。
-                        // 淡入淡出也不能保留:LazyGrid 会让淡出中的离场书跟随新布局重新定位
-                        // (滚动回弹时被带走,实测过滤场景 fadeOut 同样错位),过滤结果只能直接就位
-                        val itemAnim = Modifier.animateItem(
-                            fadeInSpec = if (animDisabled) null else tween(AnimationTokens.Medium),
-                            fadeOutSpec = if (animDisabled) null else tween(AnimationTokens.Medium),
-                            placementSpec = if (animDisabled) null else spring(),
-                        )
-                        // 选择模式下点击=切换选中,否则打开书;长按一律切换选中
-                        val onClick = {
-                            if (selectedBookIds.isNotEmpty()) onToggleSelect(book) else onOpenBook(book)
+                    label = "searchResults",
+                ) { query ->
+                    val gridState = rememberLazyGridState()
+                    // 读过书返回/自动同步新增书:平滑滚顶到 item 0(作用于当前分支网格)。
+                    // 曾用 scrollToItem(0)(瞬移):会打断 books 重排的 placement 位移动画,
+                    // 书多时书本从原位置滑到第一位的过程被瞬移掩盖(用户反馈「位移动画只有书少才可见」)。
+                    LaunchedEffect(scrollToTopSignal, scrollToTopAnimatedSignal, books) {
+                        if ((scrollToTopSignal > 0 || scrollToTopAnimatedSignal > 0) && books != null) {
+                            gridState.animateScrollToItem(0)
                         }
-                        val onLongClick = { onToggleSelect(book) }
-                        if (shelfLayout.mode == ShelfLayoutMode.ONE) {
-                            BookRowCard(book, selected, onClick, onLongClick, modifier = itemAnim)
-                        } else {
-                            BookCard(book, selected, onClick, onLongClick, modifier = itemAnim)
+                    }
+                    // 过渡期间旧树按旧词冻结渲染,新树按新词过滤
+                    val booksForGrid = if (query.isNotBlank()) {
+                        books.filter { it.title.contains(query, ignoreCase = true) }
+                    } else {
+                        books
+                    }
+                    LazyVerticalGrid(
+                        columns = columns,
+                        state = gridState,
+                        modifier = Modifier.fillMaxSize(),
+                        contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 16.dp, bottom = 16.dp),
+                        horizontalArrangement = Arrangement.spacedBy(12.dp),
+                        verticalArrangement = Arrangement.spacedBy(16.dp),
+                    ) {
+                        items(booksForGrid, key = { it.id }) { book ->
+                            val selected = book.id in selectedBookIds
+                            // 加入/移除淡入淡出 + 默认弹簧位移动画(位置重排由框架接管);
+                            // 承担删书/清空恢复等非搜索场景动画,搜索切换的过渡由容器负责
+                            val itemAnim = Modifier.animateItem(
+                                fadeInSpec = tween(AnimationTokens.Medium),
+                                fadeOutSpec = tween(AnimationTokens.Medium),
+                            )
+                            // 选择模式下点击=切换选中,否则打开书;长按一律切换选中
+                            val onClick = {
+                                if (selectedBookIds.isNotEmpty()) onToggleSelect(book) else onOpenBook(book)
+                            }
+                            val onLongClick = { onToggleSelect(book) }
+                            if (shelfLayout.mode == ShelfLayoutMode.ONE) {
+                                BookRowCard(book, selected, onClick, onLongClick, modifier = itemAnim)
+                            } else {
+                                BookCard(book, selected, onClick, onLongClick, modifier = itemAnim)
+                            }
                         }
                     }
                 }

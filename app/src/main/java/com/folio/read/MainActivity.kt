@@ -639,6 +639,27 @@ private fun AppRoot(
                 },
             )
 
+            // 搜索框是阅读 tab 的上下文:展开时进入任意其它页面(切书架/设置/关于/许可/打开书),
+            // 都收起搜索并清词——否则回到阅读 tab 会带着旧搜索状态(误以为书丢了)。
+            // 集中式观察而非逐处调用:新增页面只需把状态加进 key。收起动作自身不进 key,避免自触发
+            LaunchedEffect(
+                readerBookId,
+                selectedSectionState.value,
+                showSettings,
+                showAbout,
+                showLicenses,
+            ) {
+                val leftReading = readerBookId != null ||
+                    selectedSectionState.value == AppSections.Library ||
+                    showSettings || showAbout || showLicenses
+                if (searchState.value && leftReading) {
+                    Log.w("FolioSearch", "auto collapse (left reading page)")
+                    searchState.value = false
+                    searchQueryState.value = ""
+                    keyboard?.hide()
+                }
+            }
+
             // 选择模式下返回键退出选择,而非退出应用
             BackHandler(enabled = selectedBookIds.isNotEmpty()) {
                 selectedBookIds = emptySet()
