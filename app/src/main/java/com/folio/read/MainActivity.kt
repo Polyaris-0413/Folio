@@ -1113,12 +1113,18 @@ private fun SectionContent(
 @Composable
 private fun GlobalOverflowMenu(onAbout: () -> Unit, onSettings: () -> Unit) {
     var showSheet by remember { mutableStateOf(false) }
+    val keyboard = LocalSoftwareKeyboardController.current
     TooltipBox(
         positionProvider = rememberBelowTooltipPositionProvider(),
         tooltip = { PlainTooltip { Text(stringResource(R.string.shelf_more)) } },
         state = rememberTooltipState(),
     ) {
-        IconButton(onClick = { showSheet = true }) {
+        IconButton(onClick = {
+            // 键盘收起先行:搜索态弹出 sheet 时,IME 收起与 sheet 弹出动画并发会让 sheet
+            // 卡在中间位置近 1s 才到位(模态窗口按 IME 占位布局,键盘收起后才扩展重定位)
+            keyboard?.hide()
+            showSheet = true
+        }) {
             Icon(
                 painter = painterResource(R.drawable.ic_more_vert),
                 contentDescription = stringResource(R.string.shelf_more),
