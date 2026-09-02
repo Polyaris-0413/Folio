@@ -975,8 +975,9 @@ private fun SectionContent(
         FolioTopBar(
             titleRes = sectionState.value.labelRes,
             actions = {
-                // 三态交叉淡化(原共享顶栏同款):书架 TAB=添加+overflow;阅读选择态=重命名/删除;
-                // 阅读普通态=搜索+overflow。固定两图标宽度防过渡期容器漂移
+                // 三态交叉淡化(原共享顶栏同款):书架 TAB=添加;选择态=重命名/删除;普通态=搜索。
+                // 固定两图标宽度防过渡期容器漂移。overflow 不参与:它在前后状态都常驻,
+                // 放进分支里会跟着交叉淡化闪一下(用户反馈),故提出 Crossfade 外常驻
                 val topBarActionState = when {
                     sectionState.value == AppSections.Library -> 0
                     selectedBookIds.isNotEmpty() -> 1
@@ -992,7 +993,9 @@ private fun SectionContent(
                     Box(modifier = Modifier.fillMaxSize()) {
                         when (state) {
                             0 -> {
-                                // 书架 TAB:手动添加(SAF 选文件)+ overflow(设置、关于)
+                                // 书架 TAB:手动添加(SAF 选文件)。
+                                // align 必须挂在 Box 直接子级(Row)上:TooltipBox 内部有布局层,
+                                // 直接挂会被吞掉导致按钮不可见
                                 Row(modifier = Modifier.align(Alignment.CenterEnd)) {
                                     TooltipBox(
                                         positionProvider = rememberBelowTooltipPositionProvider(),
@@ -1006,7 +1009,6 @@ private fun SectionContent(
                                             )
                                         }
                                     }
-                                    GlobalOverflowMenu(onAbout = onAbout, onSettings = onSettings)
                                 }
                             }
                             1 -> {
@@ -1045,7 +1047,7 @@ private fun SectionContent(
                                 }
                             }
                             else -> {
-                                // 阅读普通态:搜索 + overflow(设置、关于)
+                                // 阅读普通态:搜索(align 挂 Box 直接子级 Row,同上)
                                 Row(modifier = Modifier.align(Alignment.CenterEnd)) {
                                     TooltipBox(
                                         positionProvider = rememberBelowTooltipPositionProvider(),
@@ -1059,12 +1061,12 @@ private fun SectionContent(
                                             )
                                         }
                                     }
-                                    GlobalOverflowMenu(onAbout = onAbout, onSettings = onSettings)
                                 }
                             }
                         }
                     }
                 }
+                GlobalOverflowMenu(onAbout = onAbout, onSettings = onSettings)
             },
         )
         AnimatedContent(
