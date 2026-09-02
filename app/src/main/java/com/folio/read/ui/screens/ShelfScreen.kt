@@ -235,39 +235,47 @@ fun ShelfScreen(
                         }
                     }
                 }
-                // 空态 overlay:网格常驻保证删除动画可播,空态浮层淡入(与删书淡出重叠,过渡顺滑)
-                // 内容自包居中 Box(AnimatedVisibility 内容不在 BoxScope,Modifier.align 不生效)
-                if (displayBooks.isEmpty()) {
-                    // 顶层函数全限定调用:此处处于 Column 作用域内,简写会被解析成
-                    // ColumnScope.AnimatedVisibility 扩展而报歧义
-                    androidx.compose.animation.AnimatedVisibility(
-                        visible = true,
-                        enter = fadeIn(animationSpec = tween(AnimationTokens.Medium)),
-                    ) {
-                        Box(
-                            modifier = Modifier
-                                .fillMaxSize()
-                                .wrapContentSize(Alignment.Center),
+                // 空态浮层:visible 跟随结果集是否为空(翻转时淡入/淡出,含清空搜索恢复的淡出);
+                // 空书架搜索时浮层恒在(无翻转),此时图标与文案的切换由内部 AnimatedContent 交叉淡化
+                androidx.compose.animation.AnimatedVisibility(
+                    visible = displayBooks.isEmpty(),
+                    enter = fadeIn(animationSpec = tween(AnimationTokens.Medium)),
+                    exit = fadeOut(animationSpec = tween(AnimationTokens.Medium)),
+                ) {
+                    AnimatedContent(
+                        targetState = searching,
+                        // fillMaxSize 固定容器尺寸(内容宽度变化不带动容器伸缩,无尺寸平移);
+                        // 居中由 Column 自身排列控制(fillMaxSize+Center),不依赖
+                        // AnimatedContent 的 contentAlignment(部分版本对稳态内容的居中不可靠)
+                        transitionSpec = {
+                            fadeIn(tween(AnimationTokens.Medium)) togetherWith
+                                fadeOut(tween(AnimationTokens.Medium))
+                        },
+                        modifier = Modifier.fillMaxSize(),
+                        label = "emptyState",
+                    ) { isSearching ->
+                        Column(
+                            modifier = Modifier.fillMaxSize(),
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.Center,
                         ) {
-                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                                // 搜索无匹配=放大镜+「没有找到相关书籍」;真无书=书+引导文案
-                                Icon(
-                                    painter = painterResource(
-                                        if (searching) R.drawable.ic_search else R.drawable.ic_book,
-                                    ),
-                                    contentDescription = null,
-                                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    modifier = Modifier.size(96.dp),
-                                )
-                                Spacer(modifier = Modifier.height(16.dp))
-                                Text(
-                                    text = stringResource(
-                                        if (searching) R.string.search_empty else R.string.shelf_empty_title,
-                                    ),
-                                    style = MaterialTheme.typography.titleMedium,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                )
-                            }
+                            // 搜索无匹配=放大镜+「没有找到相关书籍」;真无书=书+引导文案
+                            Icon(
+                                painter = painterResource(
+                                    if (isSearching) R.drawable.ic_search else R.drawable.ic_book,
+                                ),
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.size(96.dp),
+                            )
+                            Spacer(modifier = Modifier.height(16.dp))
+                            Text(
+                                text = stringResource(
+                                    if (isSearching) R.string.search_empty else R.string.shelf_empty_title,
+                                ),
+                                style = MaterialTheme.typography.titleMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
                         }
                     }
                 }
