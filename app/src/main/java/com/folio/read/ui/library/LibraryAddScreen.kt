@@ -21,7 +21,6 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -215,50 +214,12 @@ fun LibraryAddScreen(
             .fillMaxSize()
             .background(MaterialTheme.colorScheme.background),
     ) {
-        if (libraryDir == null) {
-            // 未选目录:空态引导(图标+标题居中,与阅读页空态同构同位——
-            // 两页空态文本切 tab 严格并排);「选择书架」为底部 contextual bar
-            // (与勾选操作条同款视觉语言:书架页需要行动时,浮动条从 TAB 栏上方浮出)
-            Column(
-                modifier = Modifier.align(Alignment.Center),
-                horizontalAlignment = Alignment.CenterHorizontally,
-            ) {
-                Icon(
-                    painter = painterResource(R.drawable.ic_shelves),
-                    contentDescription = null,
-                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.size(96.dp),
-                )
-                Spacer(modifier = Modifier.height(16.dp))
-                Text(
-                    text = stringResource(R.string.shelf_empty_title),
-                    style = MaterialTheme.typography.titleMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
-            Surface(
-                shape = MaterialTheme.shapes.large,
-                color = MaterialTheme.colorScheme.surfaceContainerHighest,
-                shadowElevation = 6.dp,
-                modifier = Modifier
-                    .align(Alignment.BottomCenter)
-                    .padding(horizontal = 16.dp, vertical = 12.dp),
-            ) {
-                Row(
-                    modifier = Modifier.padding(start = 16.dp, end = 8.dp, top = 4.dp, bottom = 4.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Text(
-                        text = stringResource(R.string.library_dir_empty_title),
-                        style = MaterialTheme.typography.labelLarge,
-                        modifier = Modifier.weight(1f),
-                    )
-                    Spacer(modifier = Modifier.width(4.dp))
-                    Button(onClick = onSelectLibrary) {
-                        Text(text = stringResource(R.string.shelf_add_library))
-                    }
-                }
-            }
+        // 空态(未选目录 / 已选目录但无候选书)在 LazyColumn 外互斥渲染而非列表内 item:
+        // contextual bar 与「未选目录」场景像素级同位(item 内会多吃一层列表 contentPadding)。
+        // 两空态间与扫描中都无树切换,仅「空↔有候选」边界硬切一次(轻量树+无过渡动画,
+        // 与旧 Crossfade 三态切换的整树重建+淡入掉帧场景不同质)
+        if (libraryDir == null || list?.isEmpty() == true) {
+            LibraryEmptyState(onSelectLibrary = onSelectLibrary)
         } else {
             Column(modifier = Modifier.fillMaxSize()) {
                 // 列表常驻:LazyColumn 容器不随扫描状态整树切换(曾用 Crossfade 切三态,扫描完成时
@@ -271,15 +232,6 @@ fun LibraryAddScreen(
                 ) {
                     when {
                         list == null -> {} // 扫描中:空白
-                        list.isEmpty() -> item {
-                            Text(
-                                text = stringResource(R.string.library_scan_empty),
-                                color = MaterialTheme.colorScheme.onSurface,
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(24.dp),
-                            )
-                        }
                         else -> items(list, key = { it.uri }) { row ->
                             val isChecked = row.uri in LibraryBrowserCache.selected
                             ListItem(
@@ -452,4 +404,58 @@ private fun formatFileSize(bytes: Long): String = when {
     bytes >= 1L shl 20 -> "%.1f".format(Locale.ROOT, bytes / (1024f * 1024f)) + " MB"
     bytes >= 1L shl 10 -> "%.0f".format(Locale.ROOT, bytes / 1024f) + " KB"
     else -> "$bytes B"
+}
+
+/**
+ * 书库空态:图标+标题居中(与书架页空态同构同位——两页空态文本切 tab 严格并排),
+ * 「选择书架」为底部 contextual bar(与勾选操作条同款视觉语言:书架页需要行动时,
+ * 浮动条从 TAB 栏上方浮出)。「未选目录」与「已选目录但无候选书」两场景共用。
+ */
+@Composable
+private fun LibraryEmptyState(
+    onSelectLibrary: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Box(modifier = modifier.fillMaxSize()) {
+        Column(
+            modifier = Modifier.align(Alignment.Center),
+            horizontalAlignment = Alignment.CenterHorizontally,
+        ) {
+            Icon(
+                painter = painterResource(R.drawable.ic_shelves),
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.size(96.dp),
+            )
+            Spacer(modifier = Modifier.height(16.dp))
+            Text(
+                text = stringResource(R.string.shelf_empty_title),
+                style = MaterialTheme.typography.titleMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+        Surface(
+            shape = MaterialTheme.shapes.large,
+            color = MaterialTheme.colorScheme.surfaceContainerHighest,
+            shadowElevation = 6.dp,
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .padding(horizontal = 16.dp, vertical = 12.dp),
+        ) {
+            Row(
+                modifier = Modifier.padding(start = 16.dp, end = 8.dp, top = 4.dp, bottom = 4.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(
+                    text = stringResource(R.string.library_dir_empty_title),
+                    style = MaterialTheme.typography.labelLarge,
+                    modifier = Modifier.weight(1f),
+                )
+                Spacer(modifier = Modifier.width(4.dp))
+                Button(onClick = onSelectLibrary) {
+                    Text(text = stringResource(R.string.shelf_add_library))
+                }
+            }
+        }
+    }
 }

@@ -71,7 +71,6 @@
     <string name="shelf_add_library">选择书架</string>
     <string name="shelf_add_duplicate">这本书已在书架中</string>
     <string name="library_dir_empty_title">尚未选择书架目录</string>
-    <string name="library_scan_empty">未在目录中找到可用书籍</string>
     <string name="library_add_selected">添加选中</string>
     <string name="library_selected_prefix">已选</string>
     <string name="library_selected_suffix">本</string>
