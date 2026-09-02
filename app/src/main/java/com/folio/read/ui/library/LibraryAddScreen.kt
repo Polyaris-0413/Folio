@@ -16,11 +16,13 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -29,6 +31,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Button
 import androidx.compose.material3.Checkbox
+import androidx.compose.material3.Icon
 import androidx.compose.material3.ListItem
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
@@ -48,6 +51,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -212,27 +216,59 @@ fun LibraryAddScreen(
             .background(MaterialTheme.colorScheme.background),
     ) {
         if (libraryDir == null) {
-            // 未选目录:居中引导,点击选择书架目录
+            // 未选目录:空态引导(图标+标题居中,与阅读页空态同构同位——
+            // 两页空态文本切 tab 严格并排);「选择书架」为底部 contextual bar
+            // (与勾选操作条同款视觉语言:书架页需要行动时,浮动条从 TAB 栏上方浮出)
             Column(
                 modifier = Modifier.align(Alignment.Center),
                 horizontalAlignment = Alignment.CenterHorizontally,
             ) {
-                Text(
-                    text = stringResource(R.string.library_dir_empty_hint),
-                    style = MaterialTheme.typography.bodyLarge,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.padding(horizontal = 32.dp),
+                Icon(
+                    painter = painterResource(R.drawable.ic_shelves),
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.size(96.dp),
                 )
-                Spacer(modifier = Modifier.padding(16.dp))
-                Button(onClick = onSelectLibrary) {
-                    Text(text = stringResource(R.string.shelf_add_library))
+                Spacer(modifier = Modifier.height(16.dp))
+                Text(
+                    text = stringResource(R.string.shelf_empty_title),
+                    style = MaterialTheme.typography.titleMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            Surface(
+                shape = MaterialTheme.shapes.large,
+                color = MaterialTheme.colorScheme.surfaceContainerHighest,
+                shadowElevation = 6.dp,
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .padding(horizontal = 16.dp, vertical = 12.dp),
+            ) {
+                Row(
+                    modifier = Modifier.padding(start = 16.dp, end = 8.dp, top = 4.dp, bottom = 4.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text(
+                        text = stringResource(R.string.library_dir_empty_title),
+                        style = MaterialTheme.typography.labelLarge,
+                        modifier = Modifier.weight(1f),
+                    )
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Button(onClick = onSelectLibrary) {
+                        Text(text = stringResource(R.string.shelf_add_library))
+                    }
                 }
             }
         } else {
             Column(modifier = Modifier.fillMaxSize()) {
                 // 列表常驻:LazyColumn 容器不随扫描状态整树切换(曾用 Crossfade 切三态,扫描完成时
                 // 整树重建+淡入 → 实测 157ms 掉帧),数据到只增量插入 item,首帧成本摊薄
-                LazyColumn(modifier = Modifier.weight(1f)) {
+                LazyColumn(
+                    modifier = Modifier.weight(1f),
+                    // 间距对齐阅读页 16dp 体系:顶栏→首项/条目间/尾项→底,两页列表语言统一
+                    contentPadding = PaddingValues(top = 16.dp, bottom = 16.dp),
+                    verticalArrangement = Arrangement.spacedBy(16.dp),
+                ) {
                     when {
                         list == null -> {} // 扫描中:空白
                         list.isEmpty() -> item {

@@ -141,20 +141,27 @@ fun ShelfScreen(
                 Log.w("FolioSearch", "search field composed, request focus (keyboard up)")
                 focusRequester.requestFocus()
             }
-            OutlinedTextField(
-                value = searchQuery,
-                onValueChange = onSearchQueryChange,
-                placeholder = { Text(text = stringResource(R.string.search_hint)) },
-                singleLine = true,
-                // 圆角=corner-small 8dp(M3 文本字段规范 token,与重命名/搜索输入框统一)
-                // 留白:上方 16dp(=书架网格顶部内边距,三段间距统一:顶栏→搜索框=搜索框→书=顶栏→书),
-                // 下方 0(与书的间距由网格自身的 16dp 顶边距提供,收起/展开时网格不跳动)
-                shape = RoundedCornerShape(8.dp),
+            // 搜索框层背景=surfaceContainer(与顶栏同层):书向上滚动滑入本层后面时,
+            // 遮挡关系有明确层级语义——背景色则像书本凭空缺块(用户实测反馈)
+            Column(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(start = 16.dp, end = 16.dp, top = 16.dp)
-                    .focusRequester(focusRequester),
-            )
+                    .background(MaterialTheme.colorScheme.surfaceContainer)
+                    .padding(horizontal = 16.dp)
+                    .padding(top = 16.dp, bottom = 12.dp),
+            ) {
+                OutlinedTextField(
+                    value = searchQuery,
+                    onValueChange = onSearchQueryChange,
+                    placeholder = { Text(text = stringResource(R.string.search_hint)) },
+                    singleLine = true,
+                    // 圆角=corner-small 8dp(M3 文本字段规范 token,与重命名/搜索输入框统一)
+                    shape = RoundedCornerShape(8.dp),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .focusRequester(focusRequester),
+                )
+            }
         }
         Box(
             modifier = Modifier
