@@ -29,10 +29,11 @@
 
 ## 截图
 <p align="center">
-  <img width="32%" src="https://github.com/user-attachments/assets/047b4674-3e30-468b-8eea-f9ced5564afc" />
-<img width="32%" src="https://github.com/user-attachments/assets/dc0faa89-d32b-43b1-a041-65d7e6c26c0d" />
-  <img width="32%" src="https://github.com/user-attachments/assets/6dee7524-b905-4334-9a65-34577bc39020" />
+  <img width="32%" src="https://github.com/user-attachments/assets/4e75b1ea-1c1e-48fc-94d7-50d8ce6de039" />
+  <img width="32%" src="https://github.com/user-attachments/assets/87149dde-91de-4434-b31f-4cba21edac5f" />
+  <img width="32%" src="https://github.com/user-attachments/assets/33cc0bd0-2590-4a90-a0b4-650e43a93367" />
 </p>
+
 
 ## 下载
 请前往 [Release 页面](https://github.com/Polyaris-0413/Folio/releases) 下载最新版本
