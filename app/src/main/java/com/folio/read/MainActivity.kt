@@ -81,6 +81,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalFontFamilyResolver
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
@@ -93,7 +94,9 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.unit.dp
+import androidx.core.view.ViewCompat
 import androidx.core.view.WindowCompat
+import androidx.core.view.WindowInsetsCompat
 import androidx.documentfile.provider.DocumentFile
 import com.folio.read.R
 import com.folio.read.data.AiConfig
@@ -1114,15 +1117,17 @@ private fun SectionContent(
 private fun GlobalOverflowMenu(onAbout: () -> Unit, onSettings: () -> Unit) {
     var showSheet by remember { mutableStateOf(false) }
     val keyboard = LocalSoftwareKeyboardController.current
+    val view = LocalView.current
     TooltipBox(
         positionProvider = rememberBelowTooltipPositionProvider(),
         tooltip = { PlainTooltip { Text(stringResource(R.string.shelf_more)) } },
         state = rememberTooltipState(),
     ) {
         IconButton(onClick = {
-            // 键盘收起先行:搜索态弹出 sheet 时,IME 收起与 sheet 弹出动画并发会让 sheet
-            // 卡在中间位置近 1s 才到位(模态窗口按 IME 占位布局,键盘收起后才扩展重定位)
-            keyboard?.hide()
+            // 键盘收起先行(sheet 弹出前串行化,避免 IME 动画与 sheet 并发卡位);
+            // 走 insets 通道而非 hide():后者无动画硬切,观感突兀
+            ViewCompat.getWindowInsetsController(view)
+                ?.hide(WindowInsetsCompat.Type.ime())
             showSheet = true
         }) {
             Icon(
