@@ -9,6 +9,7 @@ package com.folio.read.ui.screens
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
@@ -44,9 +45,13 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import android.util.Log
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
 import androidx.compose.runtime.remember
+import kotlinx.coroutines.delay
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -99,8 +104,26 @@ fun ShelfScreen(
 ) {
     // 显式滚动状态:读过书返回时滚回顶部(见下方 LaunchedEffect),切 tab 不触发保持位置
     val gridState = rememberLazyGridState()
-    // 搜索中=展开且有关键词;空关键词时网格照常显示全部(过滤只在有关键词时生效)
-    val searching = searchActive && searchQuery.isNotBlank()
+    // 搜索过滤防抖:IME 逐字上屏会连续触发过滤 diff(每次都是全列表剧变,离场/重排动画错位),
+    // 停止输入 300ms 后才应用关键词;清空关键词立即恢复,不防抖
+    var debouncedQuery by remember { mutableStateOf(searchQuery) }
+    LaunchedEffect(searchQuery) {
+        if (searchQuery.isBlank()) {
+            debouncedQuery = ""
+            return@LaunchedEffect
+        }
+        delay(300)
+        debouncedQuery = searchQuery
+    }
+    // 搜索中=展开且有关键词(防抖后);空关键词时网格照常显示全部(过滤只在有关键词时生效)
+    val searching = searchActive && debouncedQuery.isNotBlank()
+    // 实时动画开关:开始打字立即禁用条目动画——离场动画按 item 最后一次组合的 specs 启动,
+    // 必须赶在过滤 diff(防抖后)发生前让 null specs 送达所有在册条目,否则离场书仍会飞
+    val animDisabled = searchActive && searchQuery.isNotBlank()
+    // debug:搜索动画 BUG 排查日志(可见性状态翻转)
+    LaunchedEffect(searchActive) {
+        Log.w("FolioSearch", "searchActive=$searchActive")
+    }
     Column(
         modifier = modifier
             .fillMaxSize()
@@ -117,7 +140,10 @@ fun ShelfScreen(
             // 展开即聚焦弹键盘(搜索页常规体验,省一步点击);LaunchedEffect 放在内容内,
             // 保证字段已组合后 requestFocus 才生效
             val focusRequester = remember { FocusRequester() }
-            LaunchedEffect(Unit) { focusRequester.requestFocus() }
+            LaunchedEffect(Unit) {
+                Log.w("FolioSearch", "search field composed, request focus (keyboard up)")
+                focusRequester.requestFocus()
+            }
             OutlinedTextField(
                 value = searchQuery,
                 onValueChange = onSearchQueryChange,
@@ -150,9 +176,14 @@ fun ShelfScreen(
                 }
                 // 当前结果集(按书名过滤,忽略大小写)
                 val displayBooks = if (searching) {
-                    books.filter { it.title.contains(searchQuery, ignoreCase = true) }
+                    books.filter { it.title.contains(debouncedQuery, ignoreCase = true) }
                 } else {
                     books
+                }
+                // 过滤生效时滚回顶部,与过滤 diff 同帧应用——若提前于过滤(绑实时 query),
+                // 打字瞬间会先闪现"全量列表顶部"再跳成结果,暴露中间态(用户实测二次搜索必现)
+                LaunchedEffect(debouncedQuery) {
+                    if (searching) gridState.scrollToItem(0)
                 }
                 // 读过书返回/自动同步新增书:平滑滚顶到 item 0。
                 // 曾用 scrollToItem(0)(瞬移):会打断 books 重排的 placement 位移动画,
@@ -172,10 +203,16 @@ fun ShelfScreen(
                 ) {
                     items(displayBooks, key = { it.id }) { book ->
                         val selected = book.id in selectedBookIds
-                        // 加入/移除淡入淡出 + 默认 spring 位移动画(位置重排由框架接管)
+                        // 搜索打字期间(animDisabled,实时)动画即禁用:离场动画按 item 最后一次
+                        // 组合的 specs 启动,过滤 diff(防抖后)发生时离场书已不在新列表、收不到新
+                        // specs——若那之前最后一次组合还是带动画配置,离场书会飞(错位根因)。
+                        // 故 specs 跟随实时 animDisabled 而非防抖后的 searching。
+                        // 淡入淡出也不能保留:LazyGrid 会让淡出中的离场书跟随新布局重新定位
+                        // (滚动回弹时被带走,实测过滤场景 fadeOut 同样错位),过滤结果只能直接就位
                         val itemAnim = Modifier.animateItem(
-                            fadeInSpec = tween(AnimationTokens.Medium),
-                            fadeOutSpec = tween(AnimationTokens.Medium),
+                            fadeInSpec = if (animDisabled) null else tween(AnimationTokens.Medium),
+                            fadeOutSpec = if (animDisabled) null else tween(AnimationTokens.Medium),
+                            placementSpec = if (animDisabled) null else spring(),
                         )
                         // 选择模式下点击=切换选中,否则打开书;长按一律切换选中
                         val onClick = {

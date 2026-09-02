@@ -4,9 +4,11 @@ import android.net.Uri
 import android.os.SystemClock
 import android.util.Log
 import android.widget.Toast
+import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
+import androidx.compose.animation.togetherWith
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
@@ -21,6 +23,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -95,6 +98,9 @@ internal data class FileRow(
 internal object LibraryBrowserCache {
     var dir: String? = null
     var rows by mutableStateOf<List<FileRow>?>(null)
+
+    /** 已勾选的候选 URI:提升至此使返回键可清空,且勾选随缓存跨 tab 存活 */
+    var selected by mutableStateOf<Set<String>>(emptySet())
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     private var scanJob: Job? = null
     private var lastScanAt = 0L
@@ -167,7 +173,6 @@ fun LibraryAddScreen(
     val context = LocalContext.current
     val libraryRepo = remember { LibraryRepository(context.applicationContext) }
     val bookRepo = remember { BookRepository(context.applicationContext) }
-    var selected by remember { mutableStateOf<Set<String>>(emptySet()) }
     // 添加成功或目录变更后重扫:新加入的书移出候选,列表始终是「未加入」的候选
     var scanKey by remember { mutableIntStateOf(0) }
     val scope = rememberCoroutineScope()
@@ -240,7 +245,7 @@ fun LibraryAddScreen(
                             )
                         }
                         else -> items(list, key = { it.uri }) { row ->
-                            val isChecked = row.uri in selected
+                            val isChecked = row.uri in LibraryBrowserCache.selected
                             ListItem(
                                 leadingContent = {
                                     // 迷你封面:与阅读 TAB 封面同源哈希渐变(种子=文件 URI,同一文件
@@ -288,7 +293,7 @@ fun LibraryAddScreen(
                                         fadeOutSpec = tween(AnimationTokens.Medium),
                                     )
                                     .clickable {
-                                        selected = if (isChecked) selected - row.uri else selected + row.uri
+                                        LibraryBrowserCache.selected = if (isChecked) LibraryBrowserCache.selected - row.uri else LibraryBrowserCache.selected + row.uri
                                     },
                             )
                         }
@@ -300,7 +305,7 @@ fun LibraryAddScreen(
             // 上下文操作条:勾选文件时浮出于 TAB 栏上方,无选中时完全隐藏(底部不与 TAB 拥挤)。
             // 条只在有选中时可见,"添加选中"恒可用,无需禁用态
             AnimatedVisibility(
-                visible = list != null && selected.isNotEmpty(),
+                visible = list != null && LibraryBrowserCache.selected.isNotEmpty(),
                 modifier = Modifier
                     .align(Alignment.BottomCenter)
                     .padding(horizontal = 16.dp, vertical = 12.dp),
@@ -320,12 +325,43 @@ fun LibraryAddScreen(
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
                         Text(
-                            text = stringResource(R.string.library_selected_count, selected.size),
+                            text = stringResource(R.string.library_selected_prefix),
+                            style = MaterialTheme.typography.labelLarge,
+                        )
+                        // 间距用布局 Spacer 控制:空格字符在 CJK 字体下是全角宽,会造成左右间距不均
+                        Spacer(modifier = Modifier.width(4.dp))
+                        // 计数器动画:数字单独 AnimatedContent,增量从下方滚入/减量从上方滚入(里程表方向),
+                        // 前后缀保持静态,避免整句跳动
+                        AnimatedContent(
+                            targetState = LibraryBrowserCache.selected.size,
+                            transitionSpec = {
+                                if (targetState > initialState) {
+                                    (slideInVertically(tween(AnimationTokens.Medium)) { it } +
+                                        fadeIn(tween(AnimationTokens.Medium)))
+                                        .togetherWith(slideOutVertically(tween(AnimationTokens.Medium)) { -it } +
+                                            fadeOut(tween(AnimationTokens.Medium)))
+                                } else {
+                                    (slideInVertically(tween(AnimationTokens.Medium)) { -it } +
+                                        fadeIn(tween(AnimationTokens.Medium)))
+                                        .togetherWith(slideOutVertically(tween(AnimationTokens.Medium)) { it } +
+                                            fadeOut(tween(AnimationTokens.Medium)))
+                                }
+                            },
+                            label = "selectedCount",
+                        ) { count ->
+                            Text(
+                                text = "$count",
+                                style = MaterialTheme.typography.labelLarge,
+                            )
+                        }
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text(
+                            text = stringResource(R.string.library_selected_suffix),
                             style = MaterialTheme.typography.labelLarge,
                             modifier = Modifier.weight(1f),
                         )
                         TextButton(onClick = {
-                            selected = if (selected.size == list!!.size) {
+                            LibraryBrowserCache.selected = if (LibraryBrowserCache.selected.size == list!!.size) {
                                 emptySet()
                             } else {
                                 list.map { it.uri }.toSet()
@@ -338,7 +374,7 @@ fun LibraryAddScreen(
                                 var skipped = 0
                                 val toClean = mutableListOf<Book>()
                                 withContext(Dispatchers.IO) {
-                                    selected.forEach { uri ->
+                                    LibraryBrowserCache.selected.forEach { uri ->
                                         // 重复文件由唯一索引自动跳过
                                         val book = bookRepo.addBook(Uri.parse(uri))
                                         if (book == null) {
@@ -356,7 +392,7 @@ fun LibraryAddScreen(
                                     ).show()
                                 }
                                 // TAB 化:添加后不返回,清空选中并重扫,新加入的书从候选消失
-                                selected = emptySet()
+                                LibraryBrowserCache.selected = emptySet()
                                 scanKey++
                                 // 书名净化后台跑,不阻塞列表刷新
                                 toClean.forEach { book ->

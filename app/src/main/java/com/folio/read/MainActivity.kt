@@ -10,6 +10,7 @@ import android.content.Intent
 import android.net.Uri
 import android.os.Bundle
 import android.os.SystemClock
+import android.util.Log
 import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -577,6 +578,8 @@ private fun AppRoot(
                     searchQuery = searchQuery,
                     onSearchQueryChange = { searchQuery = it },
                     onSearchToggle = { expand ->
+                        // debug:搜索动画 BUG 排查日志(状态链路)
+                        Log.w("FolioSearch", "toggle expand=$expand")
                         if (expand) {
                             showSearch = true
                         } else {
@@ -584,6 +587,7 @@ private fun AppRoot(
                             showSearch = false
                             searchQuery = ""
                             keyboard?.hide()
+                            Log.w("FolioSearch", "keyboard hide() called")
                         }
                     },
                     scrollToTopSignal = scrollToTopSignal,
@@ -627,9 +631,11 @@ private fun AppRoot(
                 sectionState = selectedSectionState,
                 searchActive = showSearch,
                 onCollapseSearch = {
+                    Log.w("FolioSearch", "collapse called (back handler)")
                     showSearch = false
                     searchQuery = ""
                     keyboard?.hide()
+                    Log.w("FolioSearch", "keyboard hide() called")
                 },
             )
 
@@ -1195,7 +1201,15 @@ private fun TabBackHandlers(
     BackHandler(enabled = searchActive && sectionState.value == AppSections.Shelf) {
         onCollapseSearch()
     }
+    // 书架页无勾选:返回切回阅读 tab(返回手势语义=回到上一界面,而非退出应用)
     BackHandler(enabled = sectionState.value == AppSections.Library) {
         sectionState.value = AppSections.Shelf
+    }
+    // 书架页有勾选:返回先取消全部勾选并收起操作条(声明在上一条之后,组合顺序靠后优先拦截)
+    BackHandler(
+        enabled = sectionState.value == AppSections.Library &&
+            LibraryBrowserCache.selected.isNotEmpty(),
+    ) {
+        LibraryBrowserCache.selected = emptySet()
     }
 }
