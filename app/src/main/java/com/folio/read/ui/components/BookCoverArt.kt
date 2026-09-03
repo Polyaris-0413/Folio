@@ -24,9 +24,11 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.folio.read.R
 import com.folio.read.data.Book
+import kotlin.math.roundToInt
 
 /**
  * 封面横排书名(仅拉丁书名,如 "Book's Story")。竖排书名已走位图渲染(renderCoverBitmap),
@@ -65,15 +67,21 @@ fun CoverArtwork(book: Book, gradient: List<Color>, modifier: Modifier = Modifie
             CoverTitle(title)
         }
     } else {
-        BoxWithConstraints(modifier = modifier) {
-            val w = constraints.maxWidth
-            val h = constraints.maxHeight
-            val bitmap = remember(w, h, book.id, title) {
-                CoverCache.get("${book.id}|$title|${w}x${h}|v2") {
-                    renderCoverBitmap(w, h, title, gradient)
-                }
-            }
-            Image(bitmap = bitmap.asImageBitmap(), contentDescription = null, modifier = Modifier.fillMaxSize())
+        // 竖排封面:同步渲染(组合期画位图,书名首帧直接显示)。曾改异步渲染消除
+        // 批量添加的切页大帧,但冷启动缓存全空、书名延迟闪现(用户反馈)——根因修复改为:
+        // 渲染尺寸固定规范值(与显示布局解耦,key 稳定),FolioApp 冷启动预热提前把
+        // 首屏封面画进缓存,组合时同步命中,大帧与闪现同时消除。
+        // 位图大于显示区属超采样,拉伸无损
+        val density = LocalDensity.current
+        val sizePx = with(density) { COVER_RENDER_WIDTH_DP.dp.toPx() }.roundToInt()
+        val key = "${book.id}|$title|v3"
+        val bitmap = remember(key, sizePx) {
+            CoverCache.get(key) { renderCoverBitmap(sizePx, sizePx * 4 / 3, title, gradient) }
         }
+        Image(
+            bitmap = bitmap.asImageBitmap(),
+            contentDescription = null,
+            modifier = modifier.fillMaxSize(),
+        )
     }
 }

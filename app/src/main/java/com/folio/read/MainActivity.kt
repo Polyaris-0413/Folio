@@ -425,21 +425,22 @@ private fun AppRoot(
             val dir = forceDir ?: libraryRepo.libraryDir.first()
             if (enabled && dir != null) {
                 // 已移除的书(手动删除过)自动同步不再加回;手动添加会清除该记录
-                // 传 dir 给 scanLibrary:forceDir 场景(选目录后立即同步)不依赖 DataStore 异步写入
-                var added = 0
-                libraryRepo.scanLibrary(dir).forEach { file ->
-                    if (bookRepo.isRemoved(file.uri)) return@forEach
-                    val book = bookRepo.addBook(file.uri)
-                    if (book != null) {
-                        added++
-                        if (titleCleaner != null) {
+                // 传 dir 给 scanLibrary:forceDir 场景(选目录后立即同步)不依赖 DataStore 异步写入竞态
+                val uris = libraryRepo.scanLibrary(dir)
+                    .map { it.uri }
+                    .filterNot { bookRepo.isRemoved(it) }
+                // 事务批量入库:多次写库合并为一次列表更新(逐本 insert 以每本一轮触发全树重组)
+                val addedBooks = bookRepo.addBooks(uris)
+                // 新增书按 lastReadAt 排到书架最前:滚回顶部让用户直接看到,不用手动上拉
+                // (与「读完书返回书架滚顶」同一机制;books flow 更新后书架侧兜底再滚一次)
+                if (addedBooks.isNotEmpty()) {
+                    scrollToTopAnimatedSignal++
+                    if (titleCleaner != null) {
+                        addedBooks.forEach { book ->
                             bookRepo.aiCleanBook(book, titleCleaner)
                         }
                     }
                 }
-                // 新增书按 lastReadAt 排到书架最前:滚回顶部让用户直接看到,不用手动上拉
-                // (与「读完书返回书架滚顶」同一机制;books flow 更新后书架侧兜底再滚一次)
-                if (added > 0) scrollToTopAnimatedSignal++
             }
         }
     }
@@ -616,6 +617,11 @@ private fun AppRoot(
                     },
                     libraryDir = libraryDir,
                     onSelectLibrary = { addLibraryLauncher.launch(null) },
+                    // 添加完成后切回书架 TAB;平滑滚顶让排最前的新书露出
+                    onAddedToShelf = {
+                        selectedSectionState.value = AppSections.Shelf
+                        scrollToTopAnimatedSignal++
+                    },
                     onShowRenameDialog = { showRenameDialog = true },
                     onShowDeleteConfirm = { showDeleteConfirm = true },
                     onAbout = { showAbout = true },
@@ -960,6 +966,7 @@ private fun SectionContent(
     onOpenBook: (Book) -> Unit,
     libraryDir: String?,
     onSelectLibrary: () -> Unit,
+    onAddedToShelf: () -> Unit,
     onShowRenameDialog: () -> Unit,
     onShowDeleteConfirm: () -> Unit,
     onAbout: () -> Unit,
@@ -1097,6 +1104,7 @@ private fun SectionContent(
                 AppSections.Library -> LibraryAddScreen(
                     libraryDir = libraryDir,
                     onSelectLibrary = onSelectLibrary,
+                    onAddedToShelf = onAddedToShelf,
                     modifier = Modifier.fillMaxSize(),
                 )
             }

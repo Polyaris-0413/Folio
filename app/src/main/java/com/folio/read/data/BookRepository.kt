@@ -4,6 +4,7 @@ import android.content.Context
 import android.net.Uri
 import android.provider.DocumentsContract
 import android.provider.OpenableColumns
+import androidx.room.withTransaction
 import com.folio.read.R
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
@@ -39,14 +40,31 @@ class BookRepository(context: Context) {
      * 从 SAF 选中的文件创建书籍(仅元数据,正文解析由阅读页负责);
      * 重复文件返回 null。filePath 存原始 URI(保持可读),dedupKey 归一化去重。
      */
-    suspend fun addBook(uri: Uri): Book? {
+    suspend fun addBook(uri: Uri): Book? = withContext(Dispatchers.IO) {
+        addBookUnchecked(uri)
+    }
+
+    /**
+     * 批量添加书籍(单事务):Room 的 Flow 在每次写库后都会重查询并发射,
+     * 循环逐本 insert 会以每本一轮的频率触发观察方全树重组(批量 N 本 = N 轮),
+     * 事务把 N 次写合并为一次提交,列表只收到一次更新。
+     * excludeKeys:自动同步时传入已移除清单,手动添加传空集(允许重新加入)。
+     */
+    suspend fun addBooks(uris: List<Uri>, excludeKeys: Set<String> = emptySet()): List<Book> =
+        withContext(Dispatchers.IO) {
+            AppDatabase.getInstance(appContext).withTransaction {
+                uris.mapNotNull { uri ->
+                    if (excludeKeys.contains(normalizeKey(uri))) return@mapNotNull null
+                    addBookUnchecked(uri)
+                }
+            }
+        }
+
+    /** addBook 主体:不带线程切换,供单本与事务版批量共用(事务内须保持同线程) */
+    private suspend fun addBookUnchecked(uri: Uri): Book? {
         val name = queryDisplayName(uri) ?: appContext.getString(R.string.unnamed)
         val title = BookTitleParser.parseFileName(name)
-        val book = Book(
-            title = title,
-            filePath = uri.toString(),
-            dedupKey = normalizeKey(uri),
-        )
+        val book = Book(title = title, filePath = uri.toString(), dedupKey = normalizeKey(uri))
         val id = dao.insert(book)
         return if (id != -1L) book.copy(id = id) else null
     }

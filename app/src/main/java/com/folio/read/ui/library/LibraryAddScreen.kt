@@ -49,7 +49,6 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
-import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
@@ -72,6 +71,7 @@ import com.folio.read.data.LibraryRepository
 import com.folio.read.data.TitleCleanSettings
 import com.folio.read.data.TitleCleanSettingsRepository
 import com.folio.read.ui.components.bookCoverGradient
+import com.folio.read.ui.components.prewarmBookCovers
 import com.folio.read.ui.theme.AnimationTokens
 import java.util.Locale
 import kotlin.math.min
@@ -176,6 +176,8 @@ private suspend fun scanAndBake(repo: LibraryRepository, dir: String): List<File
 fun LibraryAddScreen(
     libraryDir: String?,
     onSelectLibrary: () -> Unit,
+    /** 添加完成后回调:宿主切回书架 TAB 展示新书 */
+    onAddedToShelf: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val context = LocalContext.current
@@ -234,25 +236,30 @@ fun LibraryAddScreen(
                 // 整树重建+淡入 → 实测 157ms 掉帧),数据到只增量插入 item,首帧成本摊薄
                 val listState = rememberLazyListState()
                 val density = LocalDensity.current
-                // 勾选从无到有且列表正停在底部:底部让位(80dp)比原 16dp 多出的 64dp 滚动
-                // 余量自动滚掉,被操作条盖住的末项顶到条上方——用户只管勾,不需要手动再拉
-                // (用户反馈)。
-                // 「是否在底部」由滚动监听持续记录:补偿逻辑运行时新 padding 已布局,
-                // canScrollForward 读到的是让位后的 true,不能用当场合,必须读勾选前的记录
-                var wasAtBottomBeforeSelection by remember { mutableStateOf(false) }
-                LaunchedEffect(listState) {
-                    snapshotFlow { listState.canScrollForward }.collect { forward ->
-                        wasAtBottomBeforeSelection = !forward
-                    }
-                }
-                var hadSelection by remember { mutableStateOf(false) }
+                // 勾选变化时,若**新增勾选的书**被浮出操作条(覆盖视口底部:条 48dp + 距底 12dp)
+                // 盖住或贴近栏顶,精确滚出让位——只看新增勾选的条目:视口底部被屏幕边缘截断
+                // 的条目与本次操作无关,不应引发滚动(否则点哪本视口都会跳)。
+                // 目标线 = 视口底 − 72dp(覆盖 60dp + 呼吸 12dp),补偿后书底与栏顶留有空隙;
+                // 新增勾选的书都不在视口内(如全选)则无从补偿,不滚。
+                // withFrameNanos 等让位 padding 的布局落地后再读几何(坐标系经真机校准:
+                // viewportEndOffset 含 afterContentPadding,条目 offset 相对视口起点)
+                var previousSelection by remember { mutableStateOf(LibraryBrowserCache.selected) }
                 LaunchedEffect(LibraryBrowserCache.selected) {
-                    val hasSelection = LibraryBrowserCache.selected.isNotEmpty()
-                    if (hasSelection && !hadSelection && wasAtBottomBeforeSelection) {
-                        withFrameNanos { } // 等让位 padding 的布局落地,滚动余量就绪后再滚
-                        listState.animateScrollBy(with(density) { 64.dp.toPx() })
+                    val added = LibraryBrowserCache.selected - previousSelection
+                    previousSelection = LibraryBrowserCache.selected
+                    if (added.isEmpty()) return@LaunchedEffect // 取消勾选/清空:操作条消失或未变,不补偿
+                    val currentList = list ?: return@LaunchedEffect // 扫描中:无布局可补偿
+                    withFrameNanos { }
+                    val info = listState.layoutInfo
+                    val targetLine = info.viewportEndOffset - with(density) { 72.dp.toPx() }
+                    val deepest = info.visibleItemsInfo
+                        .filter { currentList[it.index].uri in added }
+                        .maxByOrNull { it.offset + it.size }
+                        ?: return@LaunchedEffect // 新增勾选的书都不在视口内,无从补偿
+                    val delta = (deepest.offset + deepest.size) - targetLine
+                    if (delta > 0) {
+                        listState.animateScrollBy(delta)
                     }
-                    hadSelection = hasSelection
                 }
                 LazyColumn(
                     state = listState,
@@ -395,19 +402,11 @@ fun LibraryAddScreen(
                         }
                         Button(onClick = {
                             scope.launch {
-                                var skipped = 0
-                                val toClean = mutableListOf<Book>()
-                                withContext(Dispatchers.IO) {
-                                    LibraryBrowserCache.selected.forEach { uri ->
-                                        // 重复文件由唯一索引自动跳过
-                                        val book = bookRepo.addBook(Uri.parse(uri))
-                                        if (book == null) {
-                                            skipped++
-                                        } else if (cleaner != null) {
-                                            toClean.add(book)
-                                        }
-                                    }
-                                }
+                                val selectedUris = LibraryBrowserCache.selected.map { Uri.parse(it) }
+                                // 事务批量入库:多次写库合并为一次列表更新,避免逐本 insert
+                                // 以每本一轮的频率触发观察方全树重组(掉帧测试定位的主因之一)
+                                val addedBooks = bookRepo.addBooks(selectedUris)
+                                val skipped = selectedUris.size - addedBooks.size
                                 if (skipped > 0) {
                                     Toast.makeText(
                                         context,
@@ -415,13 +414,20 @@ fun LibraryAddScreen(
                                         Toast.LENGTH_SHORT,
                                     ).show()
                                 }
-                                // TAB 化:添加后不返回,清空选中并重扫,新加入的书从候选消失
+                                // 添加完成:清空选中并重扫,新加入的书从候选消失;
+                                // 自动切回书架 TAB,新书按最近时间排在最前,用户立即可见
                                 LibraryBrowserCache.selected = emptySet()
                                 scanKey++
+                                // 先预热新书的封面位图(后台,入库耗时远大于渲染),切页时
+                                // CoverArtwork 缓存命中同步取——书名首帧直接显示且无渲染大帧
+                                prewarmBookCovers(context, addedBooks)
+                                onAddedToShelf()
                                 // 书名净化后台跑,不阻塞列表刷新
-                                toClean.forEach { book ->
-                                    cleanScope.launch {
-                                        cleaner?.let { bookRepo.aiCleanBook(book, it) }
+                                if (cleaner != null) {
+                                    addedBooks.forEach { book ->
+                                        cleanScope.launch {
+                                            cleaner?.let { bookRepo.aiCleanBook(book, it) }
+                                        }
                                     }
                                 }
                             }

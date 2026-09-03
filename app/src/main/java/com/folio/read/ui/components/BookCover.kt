@@ -6,6 +6,7 @@ package com.folio.read.ui.components
  * SPDX-License-Identifier: GPL-3.0-only
  */
 
+import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.LinearGradient
@@ -16,6 +17,12 @@ import android.text.Layout
 import android.text.StaticLayout
 import android.text.TextPaint
 import android.text.TextUtils
+import android.util.LruCache
+import com.folio.read.R
+import com.folio.read.data.Book
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+import kotlin.math.roundToInt
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.toArgb
 import com.materialkolor.palettes.TonalPalette
@@ -52,9 +59,49 @@ fun isHorizontalTitle(title: String): Boolean =
 
 /** 封面位图进程级缓存:书架重组(退出阅读页弹回)时目的地被销毁重建,remember 会丢,位图须跨组合存活 */
 object CoverCache {
-    private val cache = mutableMapOf<String, Bitmap>()
+    // LRU 封顶 64MB:书架封面随浏览数量累积,无上限时首次批量添加几十本、逐本浏览全部
+    // 封面即线性占内存直至 OOM(用户场景:新装应用一次性加几十本);按字节淘汰最久未用
+    private val cache = object : LruCache<String, Bitmap>(MAX_BYTES) {
+        override fun sizeOf(key: String, value: Bitmap): Int = value.byteCount
+    }
 
-    fun get(key: String, render: () -> Bitmap): Bitmap = cache.getOrPut(key, render)
+    fun get(key: String, render: () -> Bitmap): Bitmap =
+        cache.get(key) ?: render().also { cache.put(key, it) }
+
+    /** 只查不渲染:命中返回缓存位图(组合可同步使用,无闪烁),未命中返回 null 交由后台渲染 */
+    fun peek(key: String): Bitmap? = cache.get(key)
+
+    private const val MAX_BYTES = 64 * 1024 * 1024
+}
+
+/**
+ * 封面位图的规范渲染宽度(dp):书架网格卡片最大宽。位图尺寸与显示布局解耦——
+ * key 不随单列/网格切换变化(缓存共享),冷启动预热(FolioApp)与书架组合
+ * (CoverArtwork)用同一 key 同一尺寸,保证组合时缓存命中、书名首帧直接显示。
+ * 大于显示区的位图属超采样,拉伸无损。改动须同步 FolioApp 的预热逻辑。
+ */
+internal const val COVER_RENDER_WIDTH_DP = 156
+
+/**
+ * 批量预热封面位图进缓存(后台线程):供冷启动(首屏书)与批量添加(新入库书)调用,
+ * 让书架组合时 CoverArtwork 缓存命中同步取位图——书名首帧直接显示且无主线程渲染。
+ * 横排书名走 Text 组件无位图,跳过。失败静默(组合侧同步渲染兜底)。
+ */
+suspend fun prewarmBookCovers(context: Context, books: List<Book>) = withContext(Dispatchers.Default) {
+    val density = context.resources.displayMetrics.density
+    val sizePx = (COVER_RENDER_WIDTH_DP * density).roundToInt()
+    books.forEach { book ->
+        val title = book.title.ifEmpty { context.getString(R.string.book_cover_placeholder) }
+        if (isHorizontalTitle(title)) return@forEach
+        CoverCache.get("${book.id}|$title|v3") {
+            renderCoverBitmap(
+                sizePx,
+                sizePx * 4 / 3,
+                title,
+                bookCoverGradient(book.dedupKey.ifBlank { book.title }),
+            )
+        }
+    }
 }
 
 /** 竖排封面位图:渐变底 + 白字竖排(字号=宽÷8,列间距=字宽×0.2,行距=字宽×1.2×1.05),与 CoverTitle 竖排分支同口径 */
