@@ -15,7 +15,7 @@ import android.content.pm.PackageManager
 import android.os.Build
 import android.os.IBinder
 import android.os.SystemClock
-import android.util.Log
+import com.folio.read.util.AppLog
 import android.widget.Toast
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -166,7 +166,7 @@ fun ReaderScreen(
             try {
                 readBook(context, loaded.filePath)
             } catch (e: Throwable) {
-                Log.e("FolioReader", "readBook 失败: $e", e)
+                AppLog.e("FolioReader", "readBook 失败: $e", e)
                 null
             }
         }
@@ -558,14 +558,14 @@ private fun ReaderPager(
                         chapterPages[idx] = pages
                         // debug:各章分页耗时与页数(卡加载排查:末尾大章会在此耗时数秒到数十秒)
                         val dt = SystemClock.uptimeMillis() - t0
-                        Log.d("FolioReader", "pages ch=$idx \"${chapters[idx].title}\" len=$contentLen n=${pages.size - 1} ${if (valid) "cached" else "calc"} ${dt}ms")
+                        AppLog.d("FolioReader", "pages ch=$idx \"${chapters[idx].title}\" len=$contentLen n=${pages.size - 1} ${if (valid) "cached" else "calc"} ${dt}ms")
                     }
                 }
 
                 // 目录跳转:切章 + 定位章首(每章页表毫秒级,远跳瞬时)
                 LaunchedEffect(pendingJump) {
                     if (pendingJump >= 0 && pendingJump in chapters.indices) {
-                        Log.d("FolioReader", "jump ch=$pendingJump \"${chapters[pendingJump].title}\"")
+                        AppLog.d("FolioReader", "jump ch=$pendingJump \"${chapters[pendingJump].title}\"")
                         curChapter = pendingJump
                         pendingPage = 0
                         pendingJump = -1
@@ -669,7 +669,7 @@ private fun ReaderPager(
                                 if (kotlin.math.abs(offset) > 0.001f) return@collect
                                 val back = ownPrev != null && page == 0
                                 val forward = ownNext != null && page == ownCount - 1
-                                android.util.Log.d(
+                                AppLog.d(
                                     "FolioPos",
                                     "edge ch=$ch cur=$curChapter page=$page count=$ownCount back=$back fwd=$forward sc=$scrolling off=$offset",
                                 )

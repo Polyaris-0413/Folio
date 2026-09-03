@@ -7,6 +7,7 @@ import android.os.Bundle
 import com.folio.read.data.AppDatabase
 import com.folio.read.ui.components.CoverCache
 import com.folio.read.ui.components.prewarmBookCovers
+import com.folio.read.util.AppLog
 import com.folio.read.util.FrameJankLog
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -48,7 +49,7 @@ class FolioApp : Application() {
      * CoverArtwork 组合时缓存命中同步取位图,书名首帧直接显示(组合后才异步渲染
      * 曾致冷启动书名延迟闪现,用户反馈)。只预热排序最前的 12 本(首屏可见量+缓冲),
      * 渲染尺寸与 CoverArtwork 同为规范值(COVER_RENDER_WIDTH_DP×密度),key 一致才命中。
-     * 横排书名走 Text 组件无位图,跳过。预热失败静默(组合侧同步渲染兜底)。
+     * 横排书名走 Text 组件无位图,跳过。预热失败记日志(组合侧同步渲染兜底)。
      */
     private fun prewarmBookCovers() {
         val appContext = applicationContext
@@ -58,6 +59,8 @@ class FolioApp : Application() {
                     .observeAll().first()
                     .take(12)
                     .let { prewarmBookCovers(appContext, it) }
+            }.getOrElse { e ->
+                AppLog.w("FolioApp", "封面预热失败: $e", e)
             }
         }
     }

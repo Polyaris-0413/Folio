@@ -2,7 +2,7 @@ package com.folio.read.ui.library
 
 import android.net.Uri
 import android.os.SystemClock
-import android.util.Log
+import com.folio.read.util.AppLog
 import android.widget.Toast
 import androidx.annotation.StringRes
 import androidx.compose.animation.AnimatedContent
@@ -150,9 +150,9 @@ internal object LibraryBrowserCache {
 private suspend fun scanAndBake(repo: LibraryRepository, dir: String): List<FileRow> = withContext(Dispatchers.IO) {
     // debug:进页掉帧定位(扫描耗时/候选数/就绪时机);Log.w 因部分 ROM(ColorOS)丢弃 debug 级日志
     val t0 = SystemClock.uptimeMillis()
-    Log.w("FolioLibrary", "scan start at $t0")
+    AppLog.w("FolioLibrary", "scan start at $t0")
     val result = repo.scanLibrary(dir)
-    Log.w("FolioLibrary", "scan done n=${result.size} dt=${SystemClock.uptimeMillis() - t0}ms")
+    AppLog.w("FolioLibrary", "scan done n=${result.size} dt=${SystemClock.uptimeMillis() - t0}ms")
     // 展示模型后台预烘焙:渐变(HCT)/净化/大小格式化移出组合帧
     result.map { f ->
         val uri = f.uri.toString()

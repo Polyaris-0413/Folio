@@ -1,5 +1,6 @@
 package com.folio.read.data
 
+import com.folio.read.util.AppLog
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
@@ -58,7 +59,10 @@ class UpdateChecker {
                     }
                 }
             }
-        }.getOrElse { UpdateCheckResult.Failed }
+        }.getOrElse { e ->
+            AppLog.w("FolioUpdate", "检查更新失败: $e", e)
+            UpdateCheckResult.Failed
+        }
     }
 }
 

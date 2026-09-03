@@ -12,7 +12,7 @@ import android.content.res.Configuration
 import android.graphics.Bitmap
 import android.os.Binder
 import android.os.IBinder
-import android.util.Log
+import com.folio.read.util.AppLog
 import androidx.core.app.NotificationCompat
 import androidx.core.app.ServiceCompat
 import androidx.core.content.ContextCompat
@@ -122,7 +122,7 @@ class ReaderTtsService : Service() {
 
     override fun onCreate() {
         super.onCreate()
-        Log.d(TAG, "onCreate")
+        AppLog.d(TAG, "onCreate")
         // Service 构造阶段 context 未附加,取系统深浅须在 onCreate 后
         repo = BookRepository(applicationContext)
         createChannel()
@@ -138,12 +138,12 @@ class ReaderTtsService : Service() {
             tts = created
             created.init(
                 onReady = {
-                    Log.d(TAG, "tts init ready")
+                    AppLog.d(TAG, "tts init ready")
                     ttsReady = true
                     tryPlay()
                 },
                 onError = {
-                    Log.d(TAG, "tts init error")
+                    AppLog.e(TAG, "tts init error")
                     errorMsg.value = getString(R.string.tts_unavailable)
                     stopSelf()
                 },
@@ -195,7 +195,7 @@ class ReaderTtsService : Service() {
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        Log.d(TAG, "onStartCommand action=${intent?.action} book=${intent?.getLongExtra(EXTRA_BOOK_ID, -1L)}")
+        AppLog.d(TAG, "onStartCommand action=${intent?.action} book=${intent?.getLongExtra(EXTRA_BOOK_ID, -1L)}")
         when (intent?.action) {
             ACTION_START -> {
                 // 首次朗读:创建朗读引擎与媒体会话(打开阅读页不创建,避免未朗读就接管媒体播放器)
@@ -247,7 +247,7 @@ class ReaderTtsService : Service() {
     }
 
     override fun onDestroy() {
-        Log.d(TAG, "onDestroy")
+        AppLog.d(TAG, "onDestroy")
         mediaSession?.release()
         tts?.shutdown()
         serviceScope.cancel()
@@ -261,7 +261,7 @@ class ReaderTtsService : Service() {
         serviceScope.launch {
             val loaded = repo.getBook(bookId)
             if (loaded == null) {
-                Log.d(TAG, "startReading: book null")
+                AppLog.w(TAG, "startReading: book null")
                 loading = false
                 errorMsg.value = getString(R.string.tts_load_failed)
                 stopSelf()
@@ -271,10 +271,13 @@ class ReaderTtsService : Service() {
             // 章节:进程内缓存 → 整本读取/解析(readBook 返回每章独立 content),回写内存缓存
             val loadedChapters = ReaderCache.memoryLoadChapters(bookId, fp)
                 ?: withContext(Dispatchers.IO) {
-                    runCatching { readBook(this@ReaderTtsService, loaded.filePath) }.getOrNull()
+                    runCatching { readBook(this@ReaderTtsService, loaded.filePath) }.getOrElse { e ->
+                        AppLog.w(TAG, "TTS 整本解析失败: $e", e)
+                        null
+                    }
                 }
             if (loadedChapters == null || loadedChapters.isEmpty()) {
-                Log.d(TAG, "startReading: chapters empty")
+                AppLog.w(TAG, "startReading: chapters empty")
                 loading = false
                 errorMsg.value = getString(R.string.tts_load_failed)
                 stopSelf()
@@ -314,7 +317,7 @@ class ReaderTtsService : Service() {
                 rel += seg.length
             }
         }
-        Log.d(TAG, "playFrom chapter=$chapterIdx offset=$offset slices=${slices.size}")
+        AppLog.d(TAG, "playFrom chapter=$chapterIdx offset=$offset slices=${slices.size}")
         pendingSlices = slices
         chapterTitle = chapter.title
         updateNotification()
@@ -359,7 +362,7 @@ class ReaderTtsService : Service() {
 
     /** 本章读完:保存进度,有下一章则继续,否则全书读完停止 */
     private fun onChapterFinished() {
-        Log.d(TAG, "onChapterFinished curChapter=$curChapter total=${chapters.size}")
+        AppLog.d(TAG, "onChapterFinished curChapter=$curChapter total=${chapters.size}")
         savePosition()
         if (curChapter + 1 < chapters.size) {
             playFrom(curChapter + 1, 0)

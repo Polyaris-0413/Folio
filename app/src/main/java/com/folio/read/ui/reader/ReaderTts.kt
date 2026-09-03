@@ -7,6 +7,7 @@ import android.media.AudioManager
 import android.os.SystemClock
 import android.speech.tts.TextToSpeech
 import android.speech.tts.UtteranceProgressListener
+import com.folio.read.util.AppLog
 import java.util.Locale
 
 /** 朗读高亮区间:章节号 + 该章内本地起止(与阅读页章内坐标一致) */
@@ -123,7 +124,7 @@ class ReaderTts(
 
                 override fun onDone(utteranceId: String?) {
                     // 段读完,推进下一段(暂停时不推进;旧回调不认,防跳段)
-                    android.util.Log.d(
+                    AppLog.d(
                         "FolioTts",
                         "onDone id=$utteranceId last=$lastSpokenSeq sub=$subIndex paused=$paused",
                     )
@@ -134,14 +135,14 @@ class ReaderTts(
                         if (elapsed < FAST_SKIP_MS && currentTextLen > FAST_SKIP_MIN_LEN) {
                             if (skipRetries < MAX_SKIP_RETRIES) {
                                 skipRetries++
-                                android.util.Log.d(
+                                AppLog.d(
                                     "FolioTts",
                                     "skipDetected sub=$subIndex ${elapsed}ms len=$currentTextLen retry=${skipRetries}/$MAX_SKIP_RETRIES",
                                 )
                                 mainHandler.postDelayed({ speakNext() }, RETRY_DELAY_MS)
                                 return
                             }
-                            android.util.Log.d("FolioTts", "skipGiveUp sub=$subIndex")
+                            AppLog.d("FolioTts", "skipGiveUp sub=$subIndex")
                             skipRetries = 0
                         }
                         subIndex++
@@ -151,7 +152,7 @@ class ReaderTts(
 
                 @Deprecated("Deprecated in Java")
                 override fun onError(utteranceId: String?) {
-                    android.util.Log.d(
+                    AppLog.d(
                         "FolioTts",
                         "onError id=$utteranceId last=$lastSpokenSeq sub=$subIndex paused=$paused",
                     )
@@ -160,7 +161,7 @@ class ReaderTts(
                         // 有约半秒免疫期,期间喂任何段都被跳过,日志实锤重试后仍连跳 8 段)
                         if (errorRetries < MAX_ERROR_RETRIES) {
                             errorRetries++
-                            android.util.Log.d("FolioTts", "retry sub=$subIndex (${errorRetries}/${MAX_ERROR_RETRIES})")
+                            AppLog.d("FolioTts", "retry sub=$subIndex (${errorRetries}/${MAX_ERROR_RETRIES})")
                             mainHandler.postDelayed({ speakNext() }, RETRY_DELAY_MS)
                         } else {
                             errorRetries = 0
@@ -275,7 +276,7 @@ class ReaderTts(
             lastSpokenSeq = speakSeq
             speakStartedAt = SystemClock.uptimeMillis()
             currentTextLen = sub.text.length
-            android.util.Log.d(
+            AppLog.d(
                 "FolioTts",
                 "speak id=$speakSeq sub=$subIndex text=${sub.text.take(16)}",
             )

@@ -1,7 +1,6 @@
 package com.folio.read.util
 
 import android.os.SystemClock
-import android.util.Log
 import android.view.Choreographer
 
 /**
@@ -34,7 +33,7 @@ object FrameJankLog {
             if (!running) return
             val elapsedMs = (frameTimeNanos - lastFrameNanos) / 1_000_000L
             if (elapsedMs > THRESHOLD_MS) {
-                Log.w(TAG, "jank ${elapsedMs}ms @ uptime=${SystemClock.uptimeMillis()}")
+                AppLog.w(TAG, "jank ${elapsedMs}ms @ uptime=${SystemClock.uptimeMillis()}")
             }
             lastFrameNanos = frameTimeNanos
             Choreographer.getInstance().postFrameCallback(this)

@@ -148,6 +148,7 @@ import com.folio.read.ui.theme.dynamicColorScheme
 import com.folio.read.ui.theme.dynamicSchemeCache
 import com.folio.read.ui.theme.dynamicSeedArgb
 import com.folio.read.ui.theme.warmDynamicSchemes
+import com.folio.read.util.AppLog
 import com.materialkolor.hct.Hct
 import com.materialkolor.scheme.SchemeNeutral
 import kotlinx.coroutines.Dispatchers
@@ -470,12 +471,14 @@ private fun AppRoot(
                         Toast.LENGTH_SHORT,
                     ).show()
                 } else {
-                    // 持久化读权限,重启后仍可打开该文件
+                    // 持久化读权限,重启后仍可打开该文件(失败即重启后打不开,须留痕)
                     runCatching {
                         context.contentResolver.takePersistableUriPermission(
                             uri,
                             Intent.FLAG_GRANT_READ_URI_PERMISSION,
                         )
+                    }.getOrElse { e ->
+                        AppLog.w("FolioShelf", "持久化读权限失败: $e", e)
                     }
                     // 书名净化后台跑,不阻塞导入
                     if (titleCleaner != null) {

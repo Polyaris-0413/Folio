@@ -1,5 +1,6 @@
 package com.folio.read.data
 
+import com.folio.read.util.AppLog
 import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withPermit
 
@@ -23,6 +24,7 @@ class BookTitleCleaner(
             )
         }.trim().ifBlank { null }
     } catch (e: Exception) {
+        AppLog.w("FolioClean", "AI 书名净化失败: $e", e)
         null
     }
 }

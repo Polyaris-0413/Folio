@@ -6,6 +6,7 @@ import android.provider.DocumentsContract
 import android.provider.OpenableColumns
 import androidx.room.withTransaction
 import com.folio.read.R
+import com.folio.read.util.AppLog
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
@@ -99,7 +100,10 @@ class BookRepository(context: Context) {
         runCatching {
             appContext.contentResolver.query(Uri.parse(book.filePath), null, null, null, null)
                 ?.use { true } ?: false
-        }.getOrDefault(false)
+        }.getOrElse { e ->
+            AppLog.w("FolioShelf", "可读性查询失败: $e", e)
+            false
+        }
     }
 
     /**
