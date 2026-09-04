@@ -44,6 +44,13 @@ android {
         }
     }
     buildTypes {
+        debug {
+            // 与 release 同签名:日常 Run 的 debug 包可被正式版直接覆盖安装(反之亦然),
+            // 签名不一致会 INSTALL_FAILED_UPDATE_INCOMPATIBLE,只能卸载重装丢数据
+            signingConfig = signingConfigs.getByName(
+                if (keystoreProperties.isNotEmpty()) "release" else "debug",
+            )
+        }
         release {
             // release 编译优化全开:R8 混淆压缩 + 资源收缩 + 默认优化规则
             optimization {
