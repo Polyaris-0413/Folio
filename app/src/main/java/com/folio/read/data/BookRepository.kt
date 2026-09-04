@@ -8,6 +8,9 @@ import androidx.room.withTransaction
 import com.folio.read.R
 import com.folio.read.util.AppLog
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.withContext
@@ -78,6 +81,28 @@ class BookRepository(context: Context) {
         val cleaned = cleaner.clean(book.title) ?: return
         if (cleaned != book.title) dao.updateTitle(book.id, cleaned)
     }
+
+    /**
+     * 批量版 aiCleanBook:并行清洗(与逐本 launch 语义一致),结果合并为单事务提交。
+     * Room 每次写库都会触发 observeAll 重发射(观察方全树重组),逐本 updateTitle 时
+     * N 本 = N 轮重组,且恰逢添加后的切页动画窗口;合并提交列表只收到一次更新。
+     */
+    suspend fun aiCleanBooks(books: List<Book>, cleaner: BookTitleCleaner) =
+        withContext(Dispatchers.IO) {
+            val updates = coroutineScope {
+                books.map { book ->
+                    async {
+                        val cleaned = runCatching { cleaner.clean(book.title) }.getOrNull()
+                        if (cleaned != null && cleaned != book.title) book.id to cleaned else null
+                    }
+                }.awaitAll()
+            }.filterNotNull()
+            if (updates.isNotEmpty()) {
+                AppDatabase.getInstance(appContext).withTransaction {
+                    updates.forEach { (id, title) -> dao.updateTitle(id, title) }
+                }
+            }
+        }
 
     /**
      * 从书架移除书籍(仅移除记录,不删除源文件)。

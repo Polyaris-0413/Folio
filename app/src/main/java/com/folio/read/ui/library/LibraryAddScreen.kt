@@ -422,12 +422,11 @@ fun LibraryAddScreen(
                                 // CoverArtwork 缓存命中同步取——书名首帧直接显示且无渲染大帧
                                 prewarmBookCovers(context, addedBooks)
                                 onAddedToShelf()
-                                // 书名净化后台跑,不阻塞列表刷新
+                                // 书名净化后台跑,不阻塞列表刷新;结果单事务合并提交,
+                                // 避免逐本 updateTitle 以每本一轮的频率触发书架全树重组
                                 if (cleaner != null) {
-                                    addedBooks.forEach { book ->
-                                        cleanScope.launch {
-                                            cleaner?.let { bookRepo.aiCleanBook(book, it) }
-                                        }
+                                    cleanScope.launch {
+                                        cleaner?.let { bookRepo.aiCleanBooks(addedBooks, it) }
                                     }
                                 }
                             }

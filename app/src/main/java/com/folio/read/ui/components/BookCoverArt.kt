@@ -13,7 +13,11 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
@@ -28,6 +32,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.folio.read.R
 import com.folio.read.data.Book
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import kotlin.math.roundToInt
 
 /**
@@ -67,21 +73,28 @@ fun CoverArtwork(book: Book, gradient: List<Color>, modifier: Modifier = Modifie
             CoverTitle(title)
         }
     } else {
-        // 竖排封面:同步渲染(组合期画位图,书名首帧直接显示)。曾改异步渲染消除
-        // 批量添加的切页大帧,但冷启动缓存全空、书名延迟闪现(用户反馈)——根因修复改为:
-        // 渲染尺寸固定规范值(与显示布局解耦,key 稳定),FolioApp 冷启动预热提前把
-        // 首屏封面画进缓存,组合时同步命中,大帧与闪现同时消除。
+        // 竖排封面:缓存命中同步取位图(书名首帧直接显示,零组合成本);未命中先渲染
+        // 渐变底占位,后台补画位图——渲染挪出主线程,预热未覆盖的书(批量添加、预热竞态)
+        // 不再在组合期画大图。冷启动首屏由 FolioApp 预热覆盖,占位分支只剩长尾,无闪现问题。
         // 位图大于显示区属超采样,拉伸无损
         val density = LocalDensity.current
         val sizePx = with(density) { COVER_RENDER_WIDTH_DP.dp.toPx() }.roundToInt()
         val key = "${book.id}|$title|v3"
-        val bitmap = remember(key, sizePx) {
-            CoverCache.get(key) { renderCoverBitmap(sizePx, sizePx * 4 / 3, title, gradient) }
+        var bitmap by remember(key, sizePx) { mutableStateOf(CoverCache.peek(key)) }
+        val cached = bitmap
+        if (cached != null) {
+            Image(
+                bitmap = cached.asImageBitmap(),
+                contentDescription = null,
+                modifier = modifier.fillMaxSize(),
+            )
+        } else {
+            LaunchedEffect(key, sizePx) {
+                bitmap = withContext(Dispatchers.Default) {
+                    CoverCache.get(key) { renderCoverBitmap(sizePx, sizePx * 4 / 3, title, gradient) }
+                }
+            }
+            Box(modifier = modifier.fillMaxSize().background(Brush.verticalGradient(gradient)))
         }
-        Image(
-            bitmap = bitmap.asImageBitmap(),
-            contentDescription = null,
-            modifier = modifier.fillMaxSize(),
-        )
     }
 }

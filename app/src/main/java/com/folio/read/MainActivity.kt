@@ -437,9 +437,8 @@ private fun AppRoot(
                 if (addedBooks.isNotEmpty()) {
                     scrollToTopAnimatedSignal++
                     if (titleCleaner != null) {
-                        addedBooks.forEach { book ->
-                            bookRepo.aiCleanBook(book, titleCleaner)
-                        }
+                        // 批量净化:结果单事务合并提交,列表只收到一次更新
+                        bookRepo.aiCleanBooks(addedBooks, titleCleaner)
                     }
                 }
             }

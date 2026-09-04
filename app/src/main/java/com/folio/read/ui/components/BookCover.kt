@@ -38,12 +38,14 @@ import kotlin.math.floor
  * 种子用 dedupKey(文件稳定标识)而非书名:书名净化(本地/AI)改变时颜色不跳变,
  * 颜色始终是"这本书"的身份色而非"这个名字"的。
  */
-fun bookCoverGradient(seed: String): List<Color> {
+private val gradientMemo = java.util.concurrent.ConcurrentHashMap<String, List<Color>>()
+
+fun bookCoverGradient(seed: String): List<Color> = gradientMemo.computeIfAbsent(seed) {
     // 哈希 → 0..309,再跳过 55..99 土色段映射到 0..354,保证不撞土色
     val raw = abs(seed.hashCode()) % 310
     val hue = if (raw < 55) raw.toDouble() else (raw + 45).toDouble()
     val palette = TonalPalette.fromHueAndChroma(hue, 36.0)
-    return listOf(
+    listOf(
         Color(palette.tone(50)),
         Color(palette.tone(35)),
     )
