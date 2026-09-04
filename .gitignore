@@ -20,3 +20,6 @@ local.properties
 
 /app/release
 /baselineprofile/build
+
+# release 签名信息(含密码),仅本机
+/keystore.properties

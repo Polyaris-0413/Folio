@@ -1,3 +1,5 @@
+import java.util.Properties
+
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.compose)
@@ -6,6 +8,13 @@ plugins {
     // Baseline Profile 录制:app 内建生成任务 :app:generateBaselineProfile,录制产物自动落
     // src/release/generated/baselineProfiles(release 变体专属源集,与 src/main 手写版共存)
     alias(libs.plugins.androidx.baselineprofile)
+}
+
+// release 签名信息在根目录 keystore.properties(已 gitignore);文件缺失时回退 debug 签名,
+// 保证克隆环境/CI 仍可构建 release
+val keystoreProperties = Properties().apply {
+    rootProject.file("keystore.properties").takeIf { it.exists() }
+        ?.inputStream()?.use { load(it) }
 }
 
 android {
@@ -24,6 +33,16 @@ android {
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
+    signingConfigs {
+        if (keystoreProperties.isNotEmpty()) {
+            create("release") {
+                storeFile = file(keystoreProperties["storeFile"] as String)
+                storePassword = keystoreProperties["storePassword"] as String
+                keyAlias = keystoreProperties["keyAlias"] as String
+                keyPassword = keystoreProperties["keyPassword"] as String
+            }
+        }
+    }
     buildTypes {
         release {
             // release 编译优化全开:R8 混淆压缩 + 资源收缩 + 默认优化规则
@@ -35,8 +54,9 @@ android {
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro",
             )
-            // 临时用 debug 签名(基准测试/本机验证要安装;正式发布换成 D 盘 key)
-            signingConfig = signingConfigs.getByName("debug")
+            signingConfig = signingConfigs.getByName(
+                if (keystoreProperties.isNotEmpty()) "release" else "debug",
+            )
         }
     }
     compileOptions {
