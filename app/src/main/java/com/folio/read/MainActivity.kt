@@ -872,9 +872,9 @@ private fun AppRoot(
                     },
                     dynamicColor = dynamicColor,
                     onDynamicColorChange = { newValue ->
-                        // 壁纸取色 API(WallpaperColors)为 Android 8.1+(API 27)新增,更低版本取色
-                        // 会异常回退默认种子色,开关拨了无可见变化;拦截并弹窗说明,不落开关状态
-                        if (newValue && Build.VERSION.SDK_INT < Build.VERSION_CODES.O_MR1) {
+                        // 静态壁纸自动上报 WallpaperColors 从 Android 9(API 28)开始;8.x 上取色
+                        // 恒为 null 回退默认种子色,开关拨了无可见变化;拦截并弹窗说明,不落开关状态
+                        if (newValue && Build.VERSION.SDK_INT < Build.VERSION_CODES.P) {
                             showDynamicColorUnsupported = true
                         } else {
                             dynamicColor = newValue

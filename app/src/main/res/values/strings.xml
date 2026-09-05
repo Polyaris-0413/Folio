@@ -10,7 +10,7 @@
     <string name="settings_theme_light">浅色</string>
     <string name="settings_dynamic_color">动态取色</string>
     <string name="settings_dynamic_color_unsupported_title">无法开启动态取色</string>
-    <string name="settings_dynamic_color_unsupported_message">此功能需要 Android 8.1 及以上的系统API支持</string>
+    <string name="settings_dynamic_color_unsupported_message">此功能需要 Android 9 及以上的系统API支持</string>
     <string name="settings_group_ai">AI</string>
     <string name="settings_ai_key">配置 API Key</string>
     <string name="settings_ai_title_clean">书名净化</string>

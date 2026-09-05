@@ -57,6 +57,7 @@ internal val dynamicSchemeCache = ConcurrentHashMap<Boolean, ColorScheme>()
 
 /** 冷启动预热:提取壁纸主色做种子,预生成深浅两套动态配色(IO 线程调用) */
 internal fun warmDynamicSchemes(context: Context) {
+    // 8.x 上取色恒为 null(静态壁纸自 Android 9 起才上报 WallpaperColors),回退默认种子色
     val seed = runCatching {
         WallpaperManager.getInstance(context).getWallpaperColors(WallpaperManager.FLAG_SYSTEM)?.primaryColor?.toArgb()
     }.getOrNull() ?: FolioSeedColor.toArgb()
