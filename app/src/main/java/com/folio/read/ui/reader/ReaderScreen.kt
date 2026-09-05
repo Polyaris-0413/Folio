@@ -726,6 +726,7 @@ private fun ReaderPager(
                         LaunchedEffect(Unit) {
                             snapshotFlow { pagerState.isScrollInProgress to ttsScrolling }.collect { (scrolling, ttsScroll) ->
                                 if (scrolling && !ttsScroll && currentTtsActive) {
+                                    AppLog.d("FolioTtsUi", "dragStop ch=$currentCh pos=${currentPos.second}")
                                     userLeftTts = true
                                     ttsService?.stopReadingAt(currentCh, currentPos.second)
                                 }
@@ -749,6 +750,7 @@ private fun ReaderPager(
                                 .coerceIn(0, realPages - 1)
                             val target = (if (ch > 0) 1 else 0) + pageInChapter
                             if (target != pagerState.currentPage) {
+                                AppLog.d("FolioTtsUi", "ttsScroll ch=$ch target=$target")
                                 // 瞬间跳转(用户实测平滑滚动效果不理想,已回滚;定位准确、无动画干扰)
                                 ttsScrolling = true
                                 try {
@@ -770,6 +772,7 @@ private fun ReaderPager(
                             if (rc == prevReadingChapter) return@LaunchedEffect
                             prevReadingChapter = rc
                             if (rc == curChapter) return@LaunchedEffect // 朗读启动(rc==cur):记录即可,不跟随
+                            AppLog.d("FolioTtsUi", "follow rc=$rc cur=$curChapter hl=${ttsHighlight?.chapter}:${ttsHighlight?.start}")
                             // 不加 ttsActive 守卫:服务切章瞬间 active 短暂抖动/状态转发有延迟,
                             // 守卫会把跟随挡掉导致 UI 停在旧章
                             jumpSeq++ // 触发正文淡入(与目录跳章一致),跨章不是瞬间跳变
@@ -798,6 +801,7 @@ private fun ReaderPager(
                             // 哨兵页(前/后导 = 相邻章边缘占位):用户滑到这里=离开当前章,
                             // 停止朗读(否则朗读仍在播,边界切章会与跨章跟随打架,页面被拉回朗读章)
                             if (pageInPager < base || pageInPager >= base + realPages) {
+                                AppLog.d("FolioTtsUi", "sentinelHit ch=$ch page=$pageInPager base=$base realPages=$realPages tts=$ttsActive")
                                 if (ttsActive) {
                                     userLeftTts = true
                                     if (ch > 0 && pageInPager == 0) {
@@ -824,6 +828,7 @@ private fun ReaderPager(
                             val pageEnd = pages.getOrElse(pageInPager - base + 1) { contentLen }
                             val highlightOnPage = hl != null && hl.chapter == ch && hl.start >= abs && hl.start < pageEnd
                             if (!highlightOnPage && ttsActive) {
+                                AppLog.d("FolioTtsUi", "mismatchStop ch=$ch abs=$abs hl=${hl?.chapter}:${hl?.start}")
                                 // 滑页/跳章:标记用户已离开并同步停朗读(不走 intent,避免异步延迟
                                 // 期间朗读自动翻页把页面拉回);恢复播放从当前页读(不重复已看内容)
                                 userLeftTts = true
