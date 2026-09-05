@@ -30,6 +30,8 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.foundation.background
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -616,6 +618,14 @@ private fun ReaderPager(
                             baseIndex + pageInChapter
                         }
                         val pagerState = rememberPagerState(initialPage = initialPage) { pageCount }
+                        AppLog.d("FolioPos", "pager-created ch=$ch initial=$initialPage count=$pageCount")
+
+                        // 临时诊断:落页时序(排查切章后连滑卡顿)
+                        LaunchedEffect(pagerState) {
+                            snapshotFlow { pagerState.currentPage }.collect {
+                                AppLog.d("FolioPos", "settle ch=$ch page=$it sc=${pagerState.isScrollInProgress}")
+                            }
+                        }
 
                         // 页 → (章号, 章内页序号) 稳定键;哨兵页占位时用独立键
                         fun keyOf(pagerIndex: Int): String = when {
@@ -692,9 +702,11 @@ private fun ReaderPager(
                             val pages = chapterPages[ch] ?: return@LaunchedEffect
                             val realLast = pages.size - 2
                             val target = if (pendingPage == Int.MAX_VALUE) realLast else pendingPage.coerceIn(0, realLast)
+                            AppLog.d("FolioPos", "locate-begin ch=$ch target=${baseIndex + target} sc=${pagerState.isScrollInProgress}")
                             ttsScrolling = true
                             try {
                                 pagerState.scrollToPage(baseIndex + target)
+                                AppLog.d("FolioPos", "locate-end ch=$ch page=${pagerState.currentPage}")
                             } finally {
                                 ttsScrolling = false
                             }
@@ -711,6 +723,17 @@ private fun ReaderPager(
                                 if (scrolling && !ttsScroll && currentTtsActive) {
                                     userLeftTts = true
                                     ttsService?.stopReadingAt(currentCh, currentPos.second)
+                                }
+                            }
+                        }
+
+                        // 临时诊断:拖拽开始/结束沿(排查切章后连滑卡顿)
+                        LaunchedEffect(pagerState) {
+                            var prev = false
+                            snapshotFlow { pagerState.isScrollInProgress }.collect { scrolling ->
+                                if (scrolling != prev) {
+                                    AppLog.d("FolioPos", "drag ch=$ch page=${pagerState.currentPage} ${if (scrolling) "begin" else "end"}")
+                                    prev = scrolling
                                 }
                             }
                         }
@@ -820,6 +843,20 @@ private fun ReaderPager(
                             savePosition(repo, saveScope, book, ch, abs)
                         }
 
+                        // 临时诊断:观察所有触摸按下(不消费事件,父级初始阶段可见)
+                        Box(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .pointerInput(Unit) {
+                                    awaitEachGesture {
+                                        val down = awaitFirstDown(requireUnconsumed = false)
+                                        AppLog.d("FolioPos", "touch-down ch=$ch page=${pagerState.currentPage} x=${down.position.x.toInt()} y=${down.position.y.toInt()}")
+                                        do {
+                                            val ev = awaitPointerEvent()
+                                        } while (ev.changes.any { it.pressed })
+                                    }
+                                },
+                        ) {
                         HorizontalPager(
                             state = pagerState,
                             modifier = Modifier
@@ -865,6 +902,7 @@ private fun ReaderPager(
                                         }
                                     },
                             )
+                        }
                         }
                     }
                     }
