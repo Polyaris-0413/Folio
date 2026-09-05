@@ -643,16 +643,10 @@ private fun ReaderPager(
                             }
                         }
 
-                        // 哨兵页切章(仅手动翻页;由 key 重建翻页器定位)。
+                        // 哨兵页切章(仅手动翻页,等滑动停止 + 相邻章就绪;由 key 重建翻页器定位,无缝不打断动画)。
                         // effect 与自身组合的章节(ch)绑定:条件由本组合推导,且 curChapter 已被其他路径
                         // (目录跳转/翻页切章)改掉时立即停手——旧组合在淡出期间仍存活,不绑定的读法会把
                         // 自己的 page 0 误判成新章的上一章末页,曾致 curChapter 越界 -1 / 跳章被削成 N-1
-                        //
-                        // 触发时机:pager 一踏上哨兵页(currentPage 提交)立即切章,不等滑动完全落定。
-                        // 旧版等 isScrollInProgress=false + offset≈0,但快速连滑手指不离屏、每次补刀
-                        // 都重置滚动状态,切章永不触发——连滑被卡在哨兵页(旧 pager 最后一页)直到停手。
-                        // 立即切章时重建落点=哨兵页同内容(相邻章已预载),跨章视觉无缝;
-                        // 触发切章的那次拖拽余势随重建失效,但翻页已完成,无感
                         LaunchedEffect(curChapter, chapterPages[ch - 1], chapterPages[ch + 1]) {
                             var switched = false
                             val ownPrev = if (ch > 0) chapterPages[ch - 1] else null
@@ -661,12 +655,24 @@ private fun ReaderPager(
                             val ownPages = chapterPages[ch] ?: return@LaunchedEffect
                             val ownCount = ownPages.size - 1 + (if (ownPrev != null) 1 else 0) + (if (ownNext != null) 1 else 0)
                             snapshotFlow {
-                                pagerState.currentPage
-                            }.collect { page ->
-                                if (switched) return@collect
+                                Triple(
+                                    pagerState.currentPage,
+                                    pagerState.isScrollInProgress,
+                                    pagerState.currentPageOffsetFraction,
+                                )
+                            }.collect { (page, scrolling, offset) ->
+                                if (switched || scrolling) return@collect
                                 if (curChapter != ch) return@collect
+                                // 等翻页动画完全落定(offset≈0)再切章:松手时 isScrollInProgress 已为 false,
+                                // 但页面回弹的补间动画还在跑,此时切章重建翻页器会把动画掐断,
+                                // 表现为翻到一半直接跳到新章节第一页(高强度滑动的"卡住"假象)
+                                if (kotlin.math.abs(offset) > 0.001f) return@collect
                                 val back = ownPrev != null && page == 0
                                 val forward = ownNext != null && page == ownCount - 1
+                                AppLog.d(
+                                    "FolioPos",
+                                    "edge ch=$ch cur=$curChapter page=$page count=$ownCount back=$back fwd=$forward sc=$scrolling off=$offset",
+                                )
                                 if (back || forward) {
                                     switched = true
                                     pendingPage = if (back) Int.MAX_VALUE else 0 // 目标:章末 / 章首
@@ -686,11 +692,9 @@ private fun ReaderPager(
                             val pages = chapterPages[ch] ?: return@LaunchedEffect
                             val realLast = pages.size - 2
                             val target = if (pendingPage == Int.MAX_VALUE) realLast else pendingPage.coerceIn(0, realLast)
-                            AppLog.d("FolioPos", "locate-begin ch=$ch target=${baseIndex + target} sc=${pagerState.isScrollInProgress}")
                             ttsScrolling = true
                             try {
                                 pagerState.scrollToPage(baseIndex + target)
-                                AppLog.d("FolioPos", "locate-end ch=$ch page=${pagerState.currentPage}")
                             } finally {
                                 ttsScrolling = false
                             }
