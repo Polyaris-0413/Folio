@@ -8,6 +8,7 @@ package com.folio.read
 import android.app.Activity
 import android.content.Intent
 import android.net.Uri
+import android.os.Build
 import android.os.Bundle
 import android.os.SystemClock
 import android.widget.Toast
@@ -304,6 +305,7 @@ private fun AppRoot(
     var scrollToTopAnimatedSignal by remember { mutableIntStateOf(0) }
     // 首次开启自动同步时的说明弹窗
     var showShelfSyncHint by remember { mutableStateOf(false) }
+    var showDynamicColorUnsupported by remember { mutableStateOf(false) }
     // 阅读页覆盖层:在 main 目的地内渲染,main 保持存活 → 退出不重组(修复退出掉帧);
     // 覆盖层打开时 main 仍是当前目的地,返回键由 ReaderScreen 的 BackHandler 接管
     var readerBookId by remember { mutableStateOf<Long?>(null) }
@@ -798,6 +800,20 @@ private fun AppRoot(
                 }
             }
 
+            // Android 8.0 尝试开启动态取色:系统无壁纸取色 API,弹窗说明
+            if (showDynamicColorUnsupported) {
+                FolioAlertDialog(
+                    onDismissRequest = { showDynamicColorUnsupported = false },
+                    title = { Text(text = stringResource(R.string.settings_dynamic_color_unsupported_title)) },
+                    text = { Text(text = stringResource(R.string.settings_dynamic_color_unsupported_message)) },
+                    confirmButton = {
+                        TextButton(onClick = { showDynamicColorUnsupported = false }) {
+                            Text(text = stringResource(R.string.shelf_sync_removal_hint_ok))
+                        }
+                    },
+                )
+            }
+
             // 首次开启自动同步说明:移除的书不会自动加回,手动添加才重新加入
             if (showShelfSyncHint) {
                 FolioAlertDialog(
@@ -856,8 +872,14 @@ private fun AppRoot(
                     },
                     dynamicColor = dynamicColor,
                     onDynamicColorChange = { newValue ->
-                        dynamicColor = newValue
-                        appScope.launch { settingsRepo.setDynamicColor(newValue) }
+                        // 壁纸取色 API(WallpaperColors)为 Android 8.1+(API 27)新增,更低版本取色
+                        // 会异常回退默认种子色,开关拨了无可见变化;拦截并弹窗说明,不落开关状态
+                        if (newValue && Build.VERSION.SDK_INT < Build.VERSION_CODES.O_MR1) {
+                            showDynamicColorUnsupported = true
+                        } else {
+                            dynamicColor = newValue
+                            appScope.launch { settingsRepo.setDynamicColor(newValue) }
+                        }
                     },
                     libraryDirName = libraryDirName,
                     onSelectLibrary = { addLibraryLauncher.launch(null) },
