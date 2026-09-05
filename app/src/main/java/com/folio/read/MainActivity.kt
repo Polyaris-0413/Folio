@@ -737,7 +737,7 @@ private fun AppRoot(
                     text = { Text(text = stringResource(R.string.book_open_failed_message)) },
                     confirmButton = {
                         TextButton(onClick = { openFailedBook = null }) {
-                            Text(text = stringResource(R.string.book_open_failed_ok))
+                            Text(text = stringResource(R.string.acknowledge))
                         }
                     },
                     dismissButton = {
@@ -808,7 +808,7 @@ private fun AppRoot(
                     text = { Text(text = stringResource(R.string.settings_dynamic_color_unsupported_message)) },
                     confirmButton = {
                         TextButton(onClick = { showDynamicColorUnsupported = false }) {
-                            Text(text = stringResource(R.string.shelf_sync_removal_hint_ok))
+                            Text(text = stringResource(R.string.acknowledge))
                         }
                     },
                 )
@@ -822,7 +822,7 @@ private fun AppRoot(
                     text = { Text(text = stringResource(R.string.shelf_sync_removal_hint_message)) },
                     confirmButton = {
                         TextButton(onClick = { showShelfSyncHint = false }) {
-                            Text(text = stringResource(R.string.shelf_sync_removal_hint_ok))
+                            Text(text = stringResource(R.string.acknowledge))
                         }
                     },
                 )

@@ -38,7 +38,7 @@
     <string name="settings_shelf_sync_desc">自动把书架中的新书加入阅读</string>
     <string name="shelf_sync_removal_hint_title">自动同步书架</string>
     <string name="shelf_sync_removal_hint_message">开启后,书架目录里的书会自动加入阅读\n被移除的书不会自动加回;若想重新阅读,手动添加即可</string>
-    <string name="shelf_sync_removal_hint_ok">知道了</string>
+    <string name="acknowledge">知道了</string>
     <string name="settings_shelf_layout">书架排版</string>
     <string name="shelf_layout_one">单列</string>
     <string name="shelf_layout_adaptive">自适应</string>
@@ -90,8 +90,7 @@
     <string name="search_empty">没有找到相关书籍</string>
     <string name="shelf_empty_title">还没有书籍</string>
     <string name="book_open_failed_title">无法打开这本书</string>
-    <string name="book_open_failed_message">文件可能已被移动、删除或改名;\n若你确认文件仍在手机中;可先从书架移除这本书,再重新添加</string>
-    <string name="book_open_failed_ok">知道了</string>
+    <string name="book_open_failed_message">文件可能已被移动、删除或改名。\n若你确认文件仍在手机中，可先从书架移除这本书，再重新添加</string>
     <string name="reader_tts">朗读</string>
     <string name="tts_pause">暂停</string>
     <string name="tts_resume">继续</string>

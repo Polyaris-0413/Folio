@@ -227,7 +227,7 @@ fun ReaderScreen(
             text = { Text(text = stringResource(R.string.book_open_failed_message)) },
             confirmButton = {
                 TextButton(onClick = onClose) {
-                    Text(text = stringResource(R.string.book_open_failed_ok))
+                    Text(text = stringResource(R.string.acknowledge))
                 }
             },
         )
