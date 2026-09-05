@@ -66,6 +66,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -529,6 +530,9 @@ private fun ReaderPager(
                 // 边界原地切章进行中:curChapter 已更新、pager 还没定位到新章页码的过渡窗口,
                 // 位置同步/进度保存等 effect 看到页码越界属预期,不做越界处理(否则误停朗读)
                 val edgeSwitching = remember { mutableStateOf(false) }
+                // 朗读跨章跟随进行中:ttsHighlight 先于 curChapter 更新,过渡帧里位置同步会拿
+                // 旧章页码配新章高亮,误判「用户离开」而杀掉朗读服务(读完一章即停的根因)
+                val ttsSwitching = remember { mutableStateOf(false) }
                 // 后台补算:当前章 + 前后各 2 章(annotated + 页表),门禁 + 边界翻页无缝。
                 // 预计算窗口必须覆盖切章目标的后一哨兵章,否则布局渐进变化会让翻页器页码错位/冻住。
                 LaunchedEffect(curChapter, textWidth, textHeight, chapters) {
@@ -584,6 +588,13 @@ private fun ReaderPager(
                 LaunchedEffect(pendingJump) {
                     if (pendingJump >= 0 && pendingJump in chapters.indices) {
                         AppLog.d("FolioReader", "jump ch=$pendingJump \"${chapters[pendingJump].title}\"")
+                        // 手动跳章=用户移动阅读位置:显式停朗读。旧行为里这句由位置同步的
+                        // mismatch 分支顺带完成;该分支现在忽略跨章过渡帧(防误杀朗读跟随),
+                        // 此处显式执行,语义不变且无 effect 时序竞态
+                        if (ttsActive) {
+                            userLeftTts = true
+                            ttsService?.stopReadingAt(curChapter, currentPosition.second)
+                        }
                         curChapter = pendingJump
                         pendingPage = 0
                         pendingJump = -1
@@ -710,10 +721,23 @@ private fun ReaderPager(
                             }
                             ttsScrolling = true
                             try {
-                                pagerState.scrollToPage(target)
+                                // 定位需自愈重试:切章当帧 pager 按「当前页 key」重锚,而哨兵页 key 与
+                                // 相邻章首末页互为镜像,目标 key 会在旧/新空间解析到不同索引——首修可能
+                                // 落在镜像哨兵页(视觉不变,表现为跳章无效)。等一帧让新 provider 就绪后
+                                // 重修,直到实际落点正确(通常 1-2 次)
+                                var attempts = 0
+                                while (pagerState.currentPage != target && attempts < 4) {
+                                    withFrameNanos { }
+                                    pagerState.scrollToPage(target)
+                                    attempts++
+                                    AppLog.d("FolioPos", "locate-loop t=$target page=${pagerState.currentPage} a=$attempts")
+                                }
                             } finally {
                                 ttsScrolling = false
                             }
+                            // 定位完成,过渡窗口关闭:朗读跟随的 ttsSwitching 由本 effect 的每次
+                            // 完整执行负责清除(页表未就绪提前返回时保持 true,窗口自然延长)
+                            ttsSwitching.value = false
                             if (pendingPage >= 0) pendingPage = -1
                             pagerPositioned = true
                         }
@@ -773,6 +797,9 @@ private fun ReaderPager(
                             prevReadingChapter = rc
                             if (rc == curChapter) return@LaunchedEffect // 朗读启动(rc==cur):记录即可,不跟随
                             AppLog.d("FolioTtsUi", "follow rc=$rc cur=$curChapter hl=${ttsHighlight?.chapter}:${ttsHighlight?.start}")
+                            // 进入跟随过渡:curChapter/pendingPage 分步写入期间,位置同步看到的
+                            // 页码与高亮分属两章,靠此标记跳过误判(定位完成后由 locate 清除)
+                            ttsSwitching.value = true
                             // 不加 ttsActive 守卫:服务切章瞬间 active 短暂抖动/状态转发有延迟,
                             // 守卫会把跟随挡掉导致 UI 停在旧章
                             jumpSeq++ // 触发正文淡入(与目录跳章一致),跨章不是瞬间跳变
@@ -791,7 +818,9 @@ private fun ReaderPager(
                         // 同步当前阅读位置(立即,供顶栏返回保存);key 含 curChapter:跨章/跳章后重启,
                         // 页表就绪时重新同步,否则 currentPosition 停在旧章,恢复朗读会从旧章读
                         LaunchedEffect(pagerState.currentPage, chapterPages[curChapter], curChapter) {
-                            if (edgeSwitching.value) return@LaunchedEffect // 原地切章过渡窗口,页码暂属旧章
+                            // 朗读跟随/边界切章的过渡窗口:页码与高亮/章号短暂分属两章,
+                            // 此时同步会误判「用户离开」杀掉朗读服务,直接跳过
+                            if (edgeSwitching.value || ttsSwitching.value) return@LaunchedEffect
                             val ch = curChapter
                             val pages = chapterPages[ch] ?: return@LaunchedEffect
                             val pageInPager = pagerState.currentPage
@@ -799,10 +828,13 @@ private fun ReaderPager(
                             val realPages = pages.size - 1
                             val contentLen = pages.last()
                             // 哨兵页(前/后导 = 相邻章边缘占位):用户滑到这里=离开当前章,
-                            // 停止朗读(否则朗读仍在播,边界切章会与跨章跟随打架,页面被拉回朗读章)
+                            // 停止朗读(否则朗读仍在播,边界切章会与跨章跟随打架,页面被拉回朗读章)。
+                            // 高亮属于另一章 = 朗读跨章跟随的过渡帧(页码/高亮短暂分属两章),
+                            // 此时不判定用户离开——判据只认「正在朗读本章」,对任何 effect 时序免疫
+                            val hlNow = ttsHighlight
                             if (pageInPager < base || pageInPager >= base + realPages) {
-                                AppLog.d("FolioTtsUi", "sentinelHit ch=$ch page=$pageInPager base=$base realPages=$realPages tts=$ttsActive")
-                                if (ttsActive) {
+                                AppLog.d("FolioTtsUi", "sentinelHit ch=$ch page=$pageInPager base=$base realPages=$realPages tts=$ttsActive hl=${hlNow?.chapter}")
+                                if (ttsActive && (hlNow == null || hlNow.chapter == ch)) {
                                     userLeftTts = true
                                     if (ch > 0 && pageInPager == 0) {
                                         val prev = chapterPages[ch - 1]
@@ -824,10 +856,12 @@ private fun ReaderPager(
                             currentPosition = ch to abs
                             // 用户移动阅读位置(翻页/跳章)时,朗读停止:避免「看 A 页、听 B 页」的脱节。
                             // 朗读自动滚动落点=高亮段所在页,当前页含高亮段起点时视为朗读引起,不停。
+                            // 高亮属于另一章 = 朗读跨章跟随的过渡帧(同上),绝不据此停朗读——
+                            // 「跳章停朗读」的语义由目录跳转处显式执行,不依赖这里的时序
                             val hl = ttsHighlight
                             val pageEnd = pages.getOrElse(pageInPager - base + 1) { contentLen }
                             val highlightOnPage = hl != null && hl.chapter == ch && hl.start >= abs && hl.start < pageEnd
-                            if (!highlightOnPage && ttsActive) {
+                            if (!highlightOnPage && ttsActive && (hl == null || hl.chapter == ch)) {
                                 AppLog.d("FolioTtsUi", "mismatchStop ch=$ch abs=$abs hl=${hl?.chapter}:${hl?.start}")
                                 // 滑页/跳章:标记用户已离开并同步停朗读(不走 intent,避免异步延迟
                                 // 期间朗读自动翻页把页面拉回);恢复播放从当前页读(不重复已看内容)
