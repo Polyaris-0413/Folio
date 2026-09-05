@@ -30,8 +30,6 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.foundation.background
-import androidx.compose.foundation.gestures.awaitEachGesture
-import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -513,6 +511,24 @@ private fun ReaderPager(
                 val chapterPages = remember(textWidth, textHeight, readerStyle) { mutableStateMapOf<Int, List<Int>>() }
                 // 目录跳转/切章后的待滚页(章内序号);-1 = 无,Int.MAX_VALUE = 章末
                 var pendingPage by remember { mutableIntStateOf(-1) }
+                // 翻页器状态提升到章节切换之外:切章不销毁重建 pager(手势节点全程存活,快速连滑
+                // 不会被重建吞掉),只更新页数并原地定位。页数 lambda 实时读状态,切章后自动跟随;
+                // 当前章页表未就绪(门禁加载中)时给 1 页占位,pager 此时不在组合内不可见
+                val pagerState = rememberPagerState(pageCount = {
+                    val ch = curChapter
+                    val pages = chapterPages[ch]
+                    if (pages == null) {
+                        1
+                    } else {
+                        pages.size - 1 + (if (ch > 0) 1 else 0) + (if (ch < chapters.lastIndex) 1 else 0)
+                    }
+                })
+                // 进入阅读页后是否已完成首次定位(从 book.chapterPosition 恢复);此后 pendingPage<0 不再动页码
+                var pagerPositioned by remember { mutableStateOf(false) }
+                var ttsScrolling by remember { mutableStateOf(false) }
+                // 边界原地切章进行中:curChapter 已更新、pager 还没定位到新章页码的过渡窗口,
+                // 位置同步/进度保存等 effect 看到页码越界属预期,不做越界处理(否则误停朗读)
+                val edgeSwitching = remember { mutableStateOf(false) }
                 // 后台补算:当前章 + 前后各 2 章(annotated + 页表),门禁 + 边界翻页无缝。
                 // 预计算窗口必须覆盖切章目标的后一哨兵章,否则布局渐进变化会让翻页器页码错位/冻住。
                 LaunchedEffect(curChapter, textWidth, textHeight, chapters) {
@@ -593,9 +609,13 @@ private fun ReaderPager(
                         LaunchedEffect(Unit) {
                             if (fade.value < 1f) fade.animateTo(1f, tween(AnimationTokens.Large))
                         }
-                    // 按章重建翻页器:切章/跳转后从目标页全新创建,旧页码不残留,杜绝哨兵误判与卡顿
-                    key(curChapter) {
-                        val ch = curChapter // 本组合的章节:effect 只认自己组合时的章,防跨章组合错位
+                    // 翻页器不再按章 key 重建(pagerState 已提升外层):旧方案切章时销毁重建手势节点,
+                    // 快速连滑时手指的下一次拖拽落在刚重建的节点上——节点没收到 DOWN 事件,整段拖拽
+                    // 被静默吞掉(边界处"滑不动一下"的根因)。原地切章后节点常驻,手势不丢。
+                    // 派生值随 curChapter 状态变化重组;各 effect 以 key(curChapter…) 重启,
+                    // 等效旧「组合绑定章节」防串章语义
+                    run {
+                        val ch = curChapter
                         val hasPrev = ch > 0
                         val hasNext = ch < chapters.lastIndex
                         val prevAnnotated = if (hasPrev) chapterAnnotated[ch - 1] else null
@@ -607,26 +627,6 @@ private fun ReaderPager(
                         val pageCount = realPages + (if (hasPrev) 1 else 0) + (if (hasNext) 1 else 0)
                         val contentLen = curPages.last()
 
-                        // 初始页:目录跳转/切章用待滚页,否则恢复章内位置
-                        val initialPage = remember(curPages, pendingPage) {
-                            val pageInChapter = if (pendingPage >= 0) {
-                                if (pendingPage == Int.MAX_VALUE) realPages - 1 else pendingPage.coerceIn(0, realPages - 1)
-                            } else {
-                                curPages.indexOfLast { it <= book.chapterPosition }
-                                    .coerceIn(0, realPages - 1)
-                            }
-                            baseIndex + pageInChapter
-                        }
-                        val pagerState = rememberPagerState(initialPage = initialPage) { pageCount }
-                        AppLog.d("FolioPos", "pager-created ch=$ch initial=$initialPage count=$pageCount")
-
-                        // 临时诊断:落页时序(排查切章后连滑卡顿)
-                        LaunchedEffect(pagerState) {
-                            snapshotFlow { pagerState.currentPage }.collect {
-                                AppLog.d("FolioPos", "settle ch=$ch page=$it sc=${pagerState.isScrollInProgress}")
-                            }
-                        }
-
                         // 页 → (章号, 章内页序号) 稳定键;哨兵页占位时用独立键
                         fun keyOf(pagerIndex: Int): String = when {
                             hasPrev && pagerIndex == 0 ->
@@ -637,80 +637,85 @@ private fun ReaderPager(
                         }
 
                         // 页 → (所属章号, 该章显示 AnnotatedString, 章内本地起止);哨兵页未就绪返回 null(渲染空白占位)
-                        fun pageInfoOf(pagerIndex: Int): Triple<Int, AnnotatedString, Pair<Int, Int>>? = when {
-                            hasPrev && pagerIndex == 0 ->
-                                prevPages?.takeIf { it.size >= 2 }?.let { pp ->
-                                    prevAnnotated?.let { Triple(ch - 1, it, pp[pp.size - 2] to pp[pp.size - 1]) }
+                        fun pageInfoOf(pagerIndex: Int): Triple<Int, AnnotatedString, Pair<Int, Int>>? {
+                            when {
+                                hasPrev && pagerIndex == 0 ->
+                                    return prevPages?.takeIf { it.size >= 2 }?.let { pp ->
+                                        prevAnnotated?.let { Triple(ch - 1, it, pp[pp.size - 2] to pp[pp.size - 1]) }
+                                    }
+                                hasNext && pagerIndex == pageCount - 1 ->
+                                    return nextPages?.takeIf { it.size >= 2 }?.let { np ->
+                                        nextAnnotated?.let { Triple(ch + 1, it, np[0] to np[1]) }
+                                    }
+                            }
+                            val p = pagerIndex - baseIndex
+                            // 原地切章的过渡帧:pager 内部仍持旧章页码,而页数/页表已是新章的
+                            // (scrollToPage 强制重测量时触发),越界返回 null 渲染空白占位,
+                            // 定位完成当帧即恢复;不加守卫曾致 IndexOutOfBoundsException 闪退
+                            if (p < 0 || p >= curPages.size - 1) return null
+                            val annotated = chapterAnnotated[ch] ?: return null
+                            return Triple(ch, annotated, curPages[p] to curPages[p + 1])
+                        }
+
+                        // 哨兵页切章:pager 一踏上哨兵页立即原地切章(更新 curChapter + scrollToPage 定位),
+                        // 不等滑动完全落定。旧方案必须等 isScrollInProgress=false 且 offset≈0(切章靠
+                        // 重建翻页器,落定前切会掐断回弹动画),但快速连滑的手指不离屏、每次补刀都把
+                        // isScrollInProgress 重新拉高,切章永远不触发——连滑被卡在哨兵页(旧 pager 的
+                        // 最后一页,无路可走)直到用户停手,即"边界处滑不动一下"。原地切章不重建节点,
+                        // 哨兵页内容=目标章定位页内容(相邻章已预载),切完像素一致无跳变;
+                        // 当前拖拽的余势由新位置自然承接,下一滑立即可用。
+                        // collector 单实例且全部实时读状态:key(curChapter) 重建移除后,不再存在
+                        // 旧组合存活期误绑定的历史问题(曾致 curChapter 越界 -1 / 跳章被削成 N-1)
+                        LaunchedEffect(Unit) {
+                            snapshotFlow { pagerState.currentPage }.collect { page ->
+                                // 首次定位(locate 从 book.chapterPosition 恢复)完成前,pager 初始页 0
+                                // 在 curChapter>0 时恰是前哨兵页,若不屏蔽会一进书就误触切章
+                                if (!pagerPositioned) return@collect
+                                val ch = curChapter
+                                val pages = chapterPages[ch] ?: return@collect
+                                val hasPrev = ch > 0
+                                val hasNext = ch < chapters.lastIndex
+                                val count = pages.size - 1 + (if (hasPrev) 1 else 0) + (if (hasNext) 1 else 0)
+                                val back = hasPrev && page == 0
+                                val forward = hasNext && page == count - 1
+                                if (!back && !forward) return@collect
+                                val target = if (back) ch - 1 else ch + 1
+                                if (chapterPages[target] == null) return@collect
+                                edgeSwitching.value = true
+                                try {
+                                    // 只更新章号,不在此处 scrollToPage:此刻强制重测量用的还是旧一章的
+                                    // item provider,会把 pager 内部的当前页 key 锚定到旧 key 空间;新章
+                                    // provider 组合后 LazyLayout 按页 key(内容恒定)重新锚定,自动落到
+                                    // 目标页——旧哨兵页与新章定位页是同一内容同一 key,无缝无跳变
+                                    curChapter = target
+                                } finally {
+                                    edgeSwitching.value = false
                                 }
-                            hasNext && pagerIndex == pageCount - 1 ->
-                                nextPages?.takeIf { it.size >= 2 }?.let { np ->
-                                    nextAnnotated?.let { Triple(ch + 1, it, np[0] to np[1]) }
-                                }
-                            else -> {
-                                val p = pagerIndex - baseIndex
-                                val annotated = chapterAnnotated[ch] ?: return null
-                                Triple(ch, annotated, curPages[p] to curPages[p + 1])
                             }
                         }
 
-                        // 哨兵页切章(仅手动翻页,等滑动停止 + 相邻章就绪;由 key 重建翻页器定位,无缝不打断动画)。
-                        // effect 与自身组合的章节(ch)绑定:条件由本组合推导,且 curChapter 已被其他路径
-                        // (目录跳转/翻页切章)改掉时立即停手——旧组合在淡出期间仍存活,不绑定的读法会把
-                        // 自己的 page 0 误判成新章的上一章末页,曾致 curChapter 越界 -1 / 跳章被削成 N-1
-                        LaunchedEffect(curChapter, chapterPages[ch - 1], chapterPages[ch + 1]) {
-                            var switched = false
-                            val ownPrev = if (ch > 0) chapterPages[ch - 1] else null
-                            val ownNext = if (ch < chapters.lastIndex) chapterPages[ch + 1] else null
-                            if (ownPrev == null && ownNext == null) return@LaunchedEffect
-                            val ownPages = chapterPages[ch] ?: return@LaunchedEffect
-                            val ownCount = ownPages.size - 1 + (if (ownPrev != null) 1 else 0) + (if (ownNext != null) 1 else 0)
-                            snapshotFlow {
-                                Triple(
-                                    pagerState.currentPage,
-                                    pagerState.isScrollInProgress,
-                                    pagerState.currentPageOffsetFraction,
-                                )
-                            }.collect { (page, scrolling, offset) ->
-                                if (switched || scrolling) return@collect
-                                if (curChapter != ch) return@collect
-                                // 等翻页动画完全落定(offset≈0)再切章:松手时 isScrollInProgress 已为 false,
-                                // 但页面回弹的补间动画还在跑,此时切章重建翻页器会把动画掐断,
-                                // 表现为翻到一半直接跳到新章节第一页(高强度滑动的"卡住"假象)
-                                if (kotlin.math.abs(offset) > 0.001f) return@collect
-                                val back = ownPrev != null && page == 0
-                                val forward = ownNext != null && page == ownCount - 1
-                                AppLog.d(
-                                    "FolioPos",
-                                    "edge ch=$ch cur=$curChapter page=$page count=$ownCount back=$back fwd=$forward sc=$scrolling off=$offset",
-                                )
-                                if (back || forward) {
-                                    switched = true
-                                    pendingPage = if (back) Int.MAX_VALUE else 0 // 目标:章末 / 章首
-                                    curChapter = if (back) ch - 1 else ch + 1
-                                }
-                            }
-                        }
-
-                        // 程序化滚动标记(朗读自动翻页/跨章定位):拖拽检测排除它,
-                        // 否则朗读自动翻页的滚动会被误判为用户滑动而暂停朗读
-                        var ttsScrolling by remember { mutableStateOf(false) }
-
-                        // 跳转/切章定位(如跳到当前章):等目标章页表就绪,滚动到待滚页;只处理本组合的章
-                        LaunchedEffect(pendingPage, chapterPages[ch]) {
-                            if (curChapter != ch) return@LaunchedEffect
-                            if (pendingPage < 0) return@LaunchedEffect
-                            val pages = chapterPages[ch] ?: return@LaunchedEffect
+                        // 跳转/切章定位:pendingPage 指定章内页(目录跳转/朗读跨章跟随);
+                        // 首次进入未定位时从 book.chapterPosition 恢复阅读位置(旧方案由
+                        // rememberPagerState(initialPage) 完成,状态提升后改由此处负责)
+                        LaunchedEffect(pendingPage, curChapter, chapterPages[curChapter]) {
+                            val pages = chapterPages[curChapter] ?: return@LaunchedEffect
+                            val base = if (curChapter > 0) 1 else 0
                             val realLast = pages.size - 2
-                            val target = if (pendingPage == Int.MAX_VALUE) realLast else pendingPage.coerceIn(0, realLast)
-                            AppLog.d("FolioPos", "locate-begin ch=$ch target=${baseIndex + target} sc=${pagerState.isScrollInProgress}")
+                            val target = when {
+                                pendingPage == Int.MAX_VALUE -> base + realLast
+                                pendingPage >= 0 -> base + pendingPage.coerceIn(0, realLast)
+                                !pagerPositioned ->
+                                    base + pages.indexOfLast { it <= book.chapterPosition }.coerceIn(0, realLast)
+                                else -> return@LaunchedEffect
+                            }
                             ttsScrolling = true
                             try {
-                                pagerState.scrollToPage(baseIndex + target)
-                                AppLog.d("FolioPos", "locate-end ch=$ch page=${pagerState.currentPage}")
+                                pagerState.scrollToPage(target)
                             } finally {
                                 ttsScrolling = false
                             }
-                            pendingPage = -1
+                            if (pendingPage >= 0) pendingPage = -1
+                            pagerPositioned = true
                         }
 
                         // 用户开始拖拽翻页:立即同步停止朗读(用户拍板:优先解决闪跳,蓝字消失时机无所谓)。
@@ -727,21 +732,11 @@ private fun ReaderPager(
                             }
                         }
 
-                        // 临时诊断:拖拽开始/结束沿(排查切章后连滑卡顿)
-                        LaunchedEffect(pagerState) {
-                            var prev = false
-                            snapshotFlow { pagerState.isScrollInProgress }.collect { scrolling ->
-                                if (scrolling != prev) {
-                                    AppLog.d("FolioPos", "drag ch=$ch page=${pagerState.currentPage} ${if (scrolling) "begin" else "end"}")
-                                    prev = scrolling
-                                }
-                            }
-                        }
-
                         // 朗读自动翻页:高亮段落在当前章内时,滚动到其所在页(跟随朗读)
-                        LaunchedEffect(ttsHighlight, curPages, ch) {
+                        LaunchedEffect(ttsHighlight, chapterPages[curChapter], curChapter) {
                             val hl = ttsHighlight ?: return@LaunchedEffect
-                            if (curChapter != ch) return@LaunchedEffect
+                            val ch = curChapter
+                            val curPages = chapterPages[ch] ?: return@LaunchedEffect
                             // 用户手动离开朗读页后不再拉回(否则翻页被吞、朗读被迫继续)
                             if (userLeftTts) return@LaunchedEffect
                             // 滚动进行中(用户滑动/动画)不插队:否则用户滑到别的页的瞬间,
@@ -749,9 +744,10 @@ private fun ReaderPager(
                             if (pagerState.isScrollInProgress) return@LaunchedEffect
                             // 高亮段必须在本章范围内才翻页(续章前旧高亮不触发)
                             if (hl.chapter != ch || hl.start < 0 || hl.start >= curPages.last()) return@LaunchedEffect
+                            val realPages = curPages.size - 1
                             val pageInChapter = curPages.indexOfLast { it <= hl.start }
                                 .coerceIn(0, realPages - 1)
-                            val target = baseIndex + pageInChapter
+                            val target = (if (ch > 0) 1 else 0) + pageInChapter
                             if (target != pagerState.currentPage) {
                                 // 瞬间跳转(用户实测平滑滚动效果不理想,已回滚;定位准确、无动画干扰)
                                 ttsScrolling = true
@@ -789,19 +785,22 @@ private fun ReaderPager(
                             }
                         }
 
-                        // 同步当前阅读位置(立即,供顶栏返回保存);只处理本组合的章
-                        // key 含 chapterPages[ch]:跳章后目标章页表就绪时也要重新同步,
-                        // 否则 currentPosition 停在旧章,恢复朗读会从旧章读
-                        LaunchedEffect(pagerState.currentPage, chapterPages[ch], ch) {
-                            if (curChapter != ch) return@LaunchedEffect
+                        // 同步当前阅读位置(立即,供顶栏返回保存);key 含 curChapter:跨章/跳章后重启,
+                        // 页表就绪时重新同步,否则 currentPosition 停在旧章,恢复朗读会从旧章读
+                        LaunchedEffect(pagerState.currentPage, chapterPages[curChapter], curChapter) {
+                            if (edgeSwitching.value) return@LaunchedEffect // 原地切章过渡窗口,页码暂属旧章
+                            val ch = curChapter
                             val pages = chapterPages[ch] ?: return@LaunchedEffect
                             val pageInPager = pagerState.currentPage
+                            val base = if (ch > 0) 1 else 0
+                            val realPages = pages.size - 1
+                            val contentLen = pages.last()
                             // 哨兵页(前/后导 = 相邻章边缘占位):用户滑到这里=离开当前章,
                             // 停止朗读(否则朗读仍在播,边界切章会与跨章跟随打架,页面被拉回朗读章)
-                            if (pageInPager < baseIndex || pageInPager >= baseIndex + realPages) {
+                            if (pageInPager < base || pageInPager >= base + realPages) {
                                 if (ttsActive) {
                                     userLeftTts = true
-                                    if (hasPrev && pageInPager == 0) {
+                                    if (ch > 0 && pageInPager == 0) {
                                         val prev = chapterPages[ch - 1]
                                         if (prev != null) {
                                             ttsService?.stopReadingAt(ch - 1, prev[prev.size - 2])
@@ -817,12 +816,12 @@ private fun ReaderPager(
                             // 切章瞬间页码还是旧章的,不在本章翻页器范围内:跳过,等滚动落定再同步
                             // (曾用 coerceIn 硬夹,切章瞬间会算出错误章内位置污染 currentPosition,
                             // 恢复朗读时从错误末尾读、立刻跳章)
-                            val abs = curPages[pageInPager - baseIndex]
+                            val abs = pages[pageInPager - base]
                             currentPosition = ch to abs
                             // 用户移动阅读位置(翻页/跳章)时,朗读停止:避免「看 A 页、听 B 页」的脱节。
                             // 朗读自动滚动落点=高亮段所在页,当前页含高亮段起点时视为朗读引起,不停。
                             val hl = ttsHighlight
-                            val pageEnd = curPages.getOrElse(pageInPager - baseIndex + 1) { contentLen }
+                            val pageEnd = pages.getOrElse(pageInPager - base + 1) { contentLen }
                             val highlightOnPage = hl != null && hl.chapter == ch && hl.start >= abs && hl.start < pageEnd
                             if (!highlightOnPage && ttsActive) {
                                 // 滑页/跳章:标记用户已离开并同步停朗读(不走 intent,避免异步延迟
@@ -831,32 +830,19 @@ private fun ReaderPager(
                                 ttsService?.stopReadingAt(ch, abs)
                             }
                         }
-                        // 翻页/切章后延迟保存位置,避免快速连翻频繁写库;只处理本组合的章
-                        LaunchedEffect(pagerState.currentPage, chapterPages[ch], ch) {
+                        // 翻页/切章后延迟保存位置,避免快速连翻频繁写库
+                        LaunchedEffect(pagerState.currentPage, chapterPages[curChapter], curChapter) {
                             delay(600)
-                            if (curChapter != ch) return@LaunchedEffect
+                            if (edgeSwitching.value) return@LaunchedEffect
+                            val ch = curChapter
                             val pages = chapterPages[ch] ?: return@LaunchedEffect
                             // 与位置同步一致:页码不在本章范围内(切章瞬间)不保存,防止写错进度
+                            val base = if (ch > 0) 1 else 0
                             val pageInPager = pagerState.currentPage
-                            if (pageInPager < baseIndex || pageInPager >= baseIndex + realPages) return@LaunchedEffect
-                            val abs = curPages[pageInPager - baseIndex]
-                            savePosition(repo, saveScope, book, ch, abs)
+                            if (pageInPager < base || pageInPager >= base + pages.size - 1) return@LaunchedEffect
+                            savePosition(repo, saveScope, book, ch, pages[pageInPager - base])
                         }
 
-                        // 临时诊断:观察所有触摸按下(不消费事件,父级初始阶段可见)
-                        Box(
-                            modifier = Modifier
-                                .fillMaxSize()
-                                .pointerInput(Unit) {
-                                    awaitEachGesture {
-                                        val down = awaitFirstDown(requireUnconsumed = false)
-                                        AppLog.d("FolioPos", "touch-down ch=$ch page=${pagerState.currentPage} x=${down.position.x.toInt()} y=${down.position.y.toInt()}")
-                                        do {
-                                            val ev = awaitPointerEvent()
-                                        } while (ev.changes.any { it.pressed })
-                                    }
-                                },
-                        ) {
                         HorizontalPager(
                             state = pagerState,
                             modifier = Modifier
@@ -902,7 +888,6 @@ private fun ReaderPager(
                                         }
                                     },
                             )
-                        }
                         }
                     }
                     }
