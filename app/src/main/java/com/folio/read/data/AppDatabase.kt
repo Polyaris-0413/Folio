@@ -129,7 +129,7 @@ abstract class AppDatabase : RoomDatabase() {
          * 建表语句取自 legado 的 Room schema(io.legado.app.data.AppDatabase/94.json 的
          * txtTocRules 定义),字段与约束保持一致,便于两侧规则相互导入。
          */
-        private val MIGRATION_8_9 = object : Migration(8, 9) {
+        internal val MIGRATION_8_9 = object : Migration(8, 9) {
             override fun migrate(db: SupportSQLiteDatabase) {
                 db.execSQL(
                     "CREATE TABLE IF NOT EXISTS `txtTocRules` (`id` INTEGER NOT NULL, " +
@@ -145,11 +145,20 @@ abstract class AppDatabase : RoomDatabase() {
          * 存量行回填空串=自动择优,行为与升级前的单正则识别一致(下次打开时由引擎择优并写回)。
          * DEFAULT 的写法与既有 MIGRATION_7_8(lastReadAt) 保持一致。
          */
-        private val MIGRATION_9_10 = object : Migration(9, 10) {
+        internal val MIGRATION_9_10 = object : Migration(9, 10) {
             override fun migrate(db: SupportSQLiteDatabase) {
                 db.execSQL("ALTER TABLE books ADD COLUMN tocRule TEXT NOT NULL DEFAULT ''")
             }
         }
+
+        /**
+         * 全部迁移,单独暴露给迁移测试:测试需要按历史 schema 手工构造旧版库,
+         * 再用同一批迁移升到当前版本并校验(见 androidTest 的 AppDatabaseMigrationTest)。
+         */
+        internal val ALL_MIGRATIONS = arrayOf(
+            MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6,
+            MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10,
+        )
 
         fun getInstance(context: Context): AppDatabase =
             instance ?: synchronized(this) {
@@ -158,10 +167,7 @@ abstract class AppDatabase : RoomDatabase() {
                     AppDatabase::class.java,
                     "folio.db",
                 )
-                    .addMigrations(
-                        MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6,
-                        MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10,
-                    )
+                    .addMigrations(*ALL_MIGRATIONS)
                     .build()
                     .also { instance = it }
             }

@@ -73,6 +73,13 @@ android {
     buildFeatures {
         compose = true
     }
+    sourceSets {
+        getByName("androidTest") {
+            // Room 导出的历史 schema 作为测试资产:迁移测试按旧版 schema 手工构造数据库,
+            // 并与其中的 identityHash 对齐(否则 Room 打开时会报数据完整性校验失败)
+            assets.srcDir("$projectDir/schemas")
+        }
+    }
 }
 
 // 手动登记非依赖来源的开源代码:AboutLibraries 自动扫描只认 Gradle 依赖,
