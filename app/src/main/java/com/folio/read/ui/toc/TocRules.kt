@@ -29,6 +29,17 @@ class TocRules {
     suspend fun delete(rule: TxtTocRule) = repo.delete(rule)
 
     /**
+     * 规则表为空时写入内置规则。
+     *
+     * 语义对应 legado 启动时的 `DefaultData.upVersion()` → `importDefaultTocRules()`
+     * （那边用版本戳门控）。移植时只搬了引擎内部的懒加载分支——它仅在解析书籍时触发，
+     * 于是全新安装、尚未打开任何书时规则页会是空的，故这里在启动时补一次播种。
+     */
+    suspend fun ensureDefaults() {
+        if (repo.count() == 0) restoreBuiltIn()
+    }
+
+    /**
      * 恢复内置规则：删掉全部预置规则（id < 0）再整批写回，用户自建规则（id > 0）保留。
      * 语义照 legado `DefaultData.importDefaultTocRules()`（先 `deleteDefault()` 再 insert）。
      */

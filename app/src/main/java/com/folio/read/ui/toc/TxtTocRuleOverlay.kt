@@ -53,6 +53,11 @@ fun TxtTocRuleOverlay(
     /** 传空串表示清除本书规则、回到自动择优 */
     onPick: (String) -> Unit,
     onDismiss: () -> Unit,
+    /**
+     * 是否处于「为某本书选规则」的上下文。设置页进入时为 false（没有当前书），
+     * 此时点击条目改为打开编辑，避免出现一个点了没反应的入口
+     */
+    pickEnabled: Boolean = true,
 ) {
     BackHandler { onDismiss() }
 
@@ -86,11 +91,23 @@ fun TxtTocRuleOverlay(
             LazyColumn(modifier = Modifier.fillMaxSize()) {
                 item {
                     Text(
-                        text = stringResource(R.string.toc_rule_hint),
+                        text = stringResource(
+                            if (pickEnabled) R.string.toc_rule_hint else R.string.toc_rule_hint_manage,
+                        ),
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
                     )
+                }
+                if (rules.isEmpty()) {
+                    item {
+                        Text(
+                            text = stringResource(R.string.toc_rule_empty),
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+                        )
+                    }
                 }
                 items(rules, key = { it.id }) { rule ->
                     val isCurrent = rule.rule == currentRule && currentRule.isNotEmpty()
@@ -121,7 +138,7 @@ fun TxtTocRuleOverlay(
                             )
                         },
                         modifier = Modifier.combinedClickable(
-                            onClick = { onPick(rule.rule) },
+                            onClick = { if (pickEnabled) onPick(rule.rule) else editing = rule },
                             onLongClick = { editing = rule },
                         ),
                     )

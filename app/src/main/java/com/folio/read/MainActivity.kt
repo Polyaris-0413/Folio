@@ -140,6 +140,8 @@ import com.folio.read.ui.reader.ReaderVPadding
 import com.folio.read.ui.reader.preWarmBook
 import com.folio.read.ui.screens.ShelfScreen
 import com.folio.read.ui.settings.AboutScreen
+import com.folio.read.ui.toc.TocRules
+import com.folio.read.ui.toc.TxtTocRuleOverlay
 import com.folio.read.ui.settings.SettingsScreen
 import com.folio.read.ui.settings.ThemeItemExpandState
 import com.folio.read.ui.theme.AnimationTokens
@@ -324,6 +326,10 @@ private fun AppRoot(
     var showLicenses by remember { mutableStateOf(false) }
     var showSettings by remember { mutableStateOf(false) }
     var showAbout by remember { mutableStateOf(false) }
+    // TXT 目录规则管理(设置页入口);阅读页目录顶栏另有入口,那里的覆盖层由 ReaderScreen 渲染
+    var showTocRule by remember { mutableStateOf(false) }
+    val tocRules = remember { TocRules() }
+    val tocRuleList by tocRules.flowAll().collectAsState(initial = emptyList())
     // 阅读页退出回调:书 id 由状态带入,退出即置顶 + 书架滚回顶部
     fun onReaderClose(bookId: Long) {
         appScope.launch { bookRepo.markRead(bookId) }
@@ -455,6 +461,7 @@ private fun AppRoot(
         showLicenses = showLicenses,
         showSettings = showSettings,
         showAbout = showAbout,
+        showTocRule = showTocRule,
         onSync = { runShelfSync() },
     )
 
@@ -654,10 +661,11 @@ private fun AppRoot(
                 showSettings,
                 showAbout,
                 showLicenses,
+                showTocRule,
             ) {
                 val leftReading = readerBookId != null ||
                     selectedSectionState.value == AppSections.Library ||
-                    showSettings || showAbout || showLicenses
+                    showSettings || showAbout || showLicenses || showTocRule
                 if (searchState.value && leftReading) {
                     searchState.value = false
                     searchQueryState.value = ""
@@ -673,6 +681,7 @@ private fun AppRoot(
             // 设置/关于覆盖层返回:关闭覆盖层(与阅读页覆盖层同语义)
             BackHandler(enabled = showSettings) { showSettings = false }
             BackHandler(enabled = showAbout) { showAbout = false }
+            BackHandler(enabled = showTocRule) { showTocRule = false }
 
             // 冷启动检测到新版本:下载(浏览器)/关闭(记住该版本,本次不再提醒;更更新的版本仍会提示)
             pendingUpdate?.let { version ->
@@ -914,6 +923,7 @@ private fun AppRoot(
                     onTitleCleanChange = { enabled ->
                         appScope.launch { titleCleanRepo.setEnabled(enabled) }
                     },
+                    onOpenTocRule = { showTocRule = true },
                 )
             }
             // 关于页覆盖层:设置页「关于」分组拆出后独立,与阅读页同模式
@@ -942,6 +952,30 @@ private fun AppRoot(
                     slideOutHorizontally(tween(AnimationTokens.XL)) { it / 16 },
             ) {
                 LicensesScreen(onBack = { showLicenses = false })
+            }
+            // 目录规则管理覆盖层(设置页入口):声明在许可页之后,保证绘制在最上层。
+            // 这里没有「当前书」上下文,故 pickEnabled=false(点击条目改为编辑)
+            AnimatedVisibility(
+                visible = showTocRule,
+                modifier = Modifier.fillMaxSize(),
+                enter = fadeIn(tween(AnimationTokens.XL)) +
+                    slideInHorizontally(tween(AnimationTokens.XL)) { it / 16 },
+                exit = fadeOut(tween(AnimationTokens.XL)) +
+                    slideOutHorizontally(tween(AnimationTokens.XL)) { it / 16 },
+            ) {
+                TxtTocRuleOverlay(
+                    rules = tocRuleList,
+                    currentRule = "",
+                    pickEnabled = false,
+                    onToggle = { rule, enabled ->
+                        appScope.launch { tocRules.setEnabled(rule, enabled) }
+                    },
+                    onSave = { rule -> appScope.launch { tocRules.save(rule) } },
+                    onDelete = { rule -> appScope.launch { tocRules.delete(rule) } },
+                    onRestoreBuiltIn = { appScope.launch { tocRules.restoreBuiltIn() } },
+                    onPick = {},
+                    onDismiss = { showTocRule = false },
+                )
             }
             }
             }
@@ -1229,10 +1263,11 @@ private fun ShelfAutoSyncEffect(
     showLicenses: Boolean,
     showSettings: Boolean,
     showAbout: Boolean,
+    showTocRule: Boolean,
     onSync: () -> Unit,
 ) {
     val shelfVisible = sectionState.value == AppSections.Shelf &&
-        readerBookId == null && !showLicenses && !showSettings && !showAbout
+        readerBookId == null && !showLicenses && !showSettings && !showAbout && !showTocRule
     var wasShelfVisible by remember { mutableStateOf(false) }
     var lastAutoSyncAt by remember { mutableStateOf(0L) }
     LaunchedEffect(shelfVisible) {

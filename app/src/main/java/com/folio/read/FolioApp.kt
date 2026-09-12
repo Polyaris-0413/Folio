@@ -7,6 +7,7 @@ import android.os.Bundle
 import com.folio.read.data.AppDatabase
 import com.folio.read.ui.components.CoverCache
 import com.folio.read.ui.components.prewarmBookCovers
+import com.folio.read.ui.toc.TocRules
 import com.folio.read.util.AppLog
 import com.folio.read.util.FrameJankLog
 import kotlinx.coroutines.CoroutineScope
@@ -25,6 +26,7 @@ class FolioApp : Application() {
         // 移植自 legado 的代码以全局 appDb/DefaultData 形式访问宿主,Folio 无 splitties 的 appCtx,
         // 由此处注入 Application Context(须早于任何目录解析)
         io.legado.app.PortingContext.init(this)
+        seedTocRulesIfEmpty()
         prewarmBookCovers()
         // buildConfig 未开启,用可调试标志位判断 debug 构建
         val isDebuggable = (applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE) != 0
@@ -45,6 +47,20 @@ class FolioApp : Application() {
             override fun onActivitySaveInstanceState(activity: Activity, outState: Bundle) {}
             override fun onActivityDestroyed(activity: Activity) {}
         })
+    }
+
+    /**
+     * 启动时播种 TXT 目录规则表（仅当表为空）。
+     * 移植的引擎只在解析书籍时才做懒加载，若等到那时才播种，用户首次进「目录规则」页
+     * 会看到空列表；legado 自身是在启动的 upVersion 里完成导入的，这里与之对齐。
+     * 失败不阻塞启动（规则页会显示空态提示，用户可手动「恢复内置」）。
+     */
+    private fun seedTocRulesIfEmpty() {
+        CoroutineScope(SupervisorJob() + Dispatchers.IO).launch {
+            runCatching { TocRules().ensureDefaults() }.getOrElse { e ->
+                AppLog.w("FolioApp", "内置目录规则播种失败: $e", e)
+            }
+        }
     }
 
     /**
