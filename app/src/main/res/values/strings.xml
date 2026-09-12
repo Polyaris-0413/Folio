@@ -102,4 +102,19 @@
     <string name="tts_channel">朗读</string>
     <string name="unnamed">未命名</string>
     <string name="book_cover_placeholder">书</string>
+    <string name="reader_toc_rule">规则</string>
+    <string name="toc_rule_manage">TXT 目录规则</string>
+    <string name="toc_rule_hint">点击规则应用到本书；长按可编辑</string>
+    <string name="toc_rule_new">新建</string>
+    <string name="toc_rule_edit">编辑规则</string>
+    <string name="toc_rule_restore">恢复内置</string>
+    <string name="toc_rule_restore_confirm">将删除全部预置规则并写回内置规则，自建规则会保留。是否继续？</string>
+    <string name="toc_rule_delete">删除规则</string>
+    <string name="toc_rule_delete_confirm">确定删除规则「%1」吗？</string>
+    <string name="toc_rule_name">名称</string>
+    <string name="toc_rule_regex">正则表达式</string>
+    <string name="toc_rule_regex_invalid">正则语法错误</string>
+    <string name="toc_rule_example">示例标题</string>
+    <string name="toc_rule_save">保存</string>
+    <string name="toc_rule_builtin_fallback">空正则：按字数分章(兜底)</string>
 </resources>

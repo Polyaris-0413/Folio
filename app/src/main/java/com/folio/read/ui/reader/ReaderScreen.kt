@@ -96,6 +96,8 @@ import com.folio.read.data.PageTurnSettings
 import com.folio.read.data.PageTurnSettingsRepository
 import com.folio.read.ui.components.FolioAlertDialog
 import com.folio.read.ui.components.FolioTopBar
+import com.folio.read.ui.toc.TocRules
+import com.folio.read.ui.toc.TxtTocRuleOverlay
 import com.folio.read.ui.components.menuShape
 import com.folio.read.ui.components.rememberBelowTooltipPositionProvider
 import com.folio.read.ui.theme.AnimationTokens
@@ -141,8 +143,16 @@ fun ReaderScreen(
     // 保存协程挂到独立作用域:离开目的地后进度写入不被取消
     val saveScope = remember { CoroutineScope(SupervisorJob() + Dispatchers.Default) }
 
+    // TXT 目录规则:覆盖层开关 + 规则表。规则库读写走移植来的 TxtTocRuleRepository
+    val tocRules = remember { TocRules() }
+    val tocRuleList by tocRules.flowAll().collectAsState(initial = emptyList())
+    var showTocRule by remember { mutableStateOf(false) }
+    // 规则变更后自增,用于触发重新分章(章节缓存键含规则,自动 miss)
+    var tocRuleRev by remember { mutableIntStateOf(0) }
+
     // 加载书籍与章节:进程内存缓存 → 整本读取/解析(readBook 返回每章独立 content)
-    LaunchedEffect(bookId) {
+    // 规则变更后 tocRuleRev 变化会重跑本 effect:重读 Book 拿到新的 tocRule,缓存键随之改变
+    LaunchedEffect(bookId, tocRuleRev) {
         val loaded = repo.getBook(bookId)
         if (loaded == null) {
             loadFailed = true
@@ -215,8 +225,36 @@ fun ReaderScreen(
                     dynamicColor = dynamicColor,
                     pageTurnMode = pageTurnMode,
                     onClose = onClose,
+                    onOpenTocRule = { showTocRule = true },
                 )
             }
+    }
+
+    // 规则管理与逐本规则选择覆盖层:与目录覆盖层同款,盖在阅读页上
+    if (showTocRule) {
+        val currentRule = book?.tocRule ?: ""
+        TxtTocRuleOverlay(
+            rules = tocRuleList,
+            currentRule = currentRule,
+            onToggle = { rule, enabled -> saveScope.launch { tocRules.setEnabled(rule, enabled) } },
+            onSave = { rule -> saveScope.launch { tocRules.save(rule) } },
+            onDelete = { rule -> saveScope.launch { tocRules.delete(rule) } },
+            onRestoreBuiltIn = { saveScope.launch { tocRules.restoreBuiltIn() } },
+            onPick = { pattern ->
+                val target = book
+                saveScope.launch {
+                    // 落库后自增版本触发重解析:章节缓存键含规则,新键必然 miss
+                    if (target != null && target.tocRule != pattern) {
+                        repo.updateTocRule(target.id, pattern)
+                    }
+                    withContext(Dispatchers.Main) {
+                        showTocRule = false
+                        tocRuleRev++
+                    }
+                }
+            },
+            onDismiss = { showTocRule = false },
+        )
     }
 
     // 打开失败:说明情况/原因/解法,关掉直接返回书架(不走 handleBack,避免用空进度覆盖原阅读位置)
@@ -309,6 +347,8 @@ private fun ReaderPager(
     dynamicColor: Boolean,
     pageTurnMode: PageTurnMode,
     onClose: () -> Unit,
+    /** 目录顶栏「规则」入口:交给上层渲染规则覆盖层(与目录覆盖层同层) */
+    onOpenTocRule: () -> Unit,
 ) {
     val context = LocalContext.current
     val measurer = rememberTextMeasurer()
@@ -894,6 +934,11 @@ private fun ReaderPager(
                     showToc = false
                 },
                 onDismiss = { showToc = false },
+                onOpenTocRule = {
+                    // 先收起目录再开规则页:两层覆盖层不同时在场,返回键语义不歧义
+                    showToc = false
+                    onOpenTocRule()
+                },
             )
         }
     }

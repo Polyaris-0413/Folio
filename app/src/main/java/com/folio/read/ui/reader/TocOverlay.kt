@@ -12,6 +12,7 @@ import androidx.compose.material3.ListItem
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
@@ -24,6 +25,7 @@ import com.folio.read.ui.components.FolioTopBar
  * 章节目录覆盖层(单 Activity 阅读页内):全屏盖在阅读页上,阅读页组合保持存活
  * (分页状态/朗读绑定不丢),行为与旧「目录 Activity 盖在阅读页上」一致。
  * 章节标题由阅读页直接提供(打开即渲染,零加载);点击章节回调跳转,返回键关闭。
+ * [onOpenTocRule] 非空时顶栏给出「规则」入口(进入规则管理与逐本规则选择)。
  */
 @Composable
 fun TocOverlay(
@@ -31,6 +33,7 @@ fun TocOverlay(
     currentChapter: Int,
     onSelect: (Int) -> Unit,
     onDismiss: () -> Unit,
+    onOpenTocRule: (() -> Unit)? = null,
 ) {
     // 覆盖层在前:返回键优先关闭目录,不触发阅读页返回
     BackHandler { onDismiss() }
@@ -41,6 +44,13 @@ fun TocOverlay(
             FolioTopBar(
                 titleRes = R.string.toc,
                 onBack = onDismiss,
+                actions = {
+                    if (onOpenTocRule != null) {
+                        TextButton(onClick = onOpenTocRule) {
+                            Text(stringResource(R.string.reader_toc_rule))
+                        }
+                    }
+                },
             )
         },
     ) { innerPadding ->
