@@ -26,6 +26,32 @@ object TxtTocEngine {
     private const val TAG = "FolioToc"
 
     /**
+     * 预览用：以指定规则对本书试切一次，只返回章节数。
+     *
+     * 与 [parse] 的区别是**不取正文、不落库**——规则预览要对每条规则各跑一次，
+     * 取正文会把整本书转成字符串，代价与内存都不可接受。
+     * 落库也刻意不做：试切不应改变本书实际使用的规则。
+     *
+     * 注意：空规则（legado 的兜底条目）不适用本函数——传空串会被引擎当作"自动择优"，
+     * 而该条目的真实语义是"按字数分章"，调用方应直接按此语义展示，不必计算。
+     */
+    suspend fun countChaptersWithRule(book: Book, rule: String): Int {
+        val carrier = io.legado.app.data.entities.Book(
+            bookUrl = book.filePath,
+            originName = book.filePath.substringAfterLast('/'),
+            tocUrl = rule,
+            // 试切时不拆分超长章:拆分会把章数放大,不利于横向比较各规则的切分粒度
+            splitLongChapterEnabled = false,
+        )
+        TextFile.clear()
+        return try {
+            TextFile.getChapterList(carrier).size
+        } finally {
+            TextFile.clear()
+        }
+    }
+
+    /**
      * 解析 TXT 目录与正文。
      *
      * 规则落库（`books.tocRule`）就在这里做，而不是交给三个调用方：生效规则只在本函数中
@@ -48,7 +74,7 @@ object TxtTocEngine {
         // 引擎按 bookUrl 缓存单例(含 8MB 滑动缓冲与字符集)。这里每次解析都先重置:
         // 源文件被外部替换时指纹变了但 bookUrl 不变,复用旧缓冲会读出错位的正文。
         TextFile.clear()
-        val chapters = try {
+        var chapters = try {
             TextFile.getChapterList(carrier)
         } catch (e: PatternSyntaxException) {
             // 记住的规则可能被删改坏了。legado 在原位不处理(会直接抛出),这里退回自动择优,
@@ -57,6 +83,14 @@ object TxtTocEngine {
             carrier.tocUrl = ""
             TextFile.clear()
             TextFile.getChapterList(carrier)
+        }
+        // 记住的规则一条都匹配不到时,引擎会返回空列表——空目录等于书打不开。
+        // 规则预览里这类规则显示为「0 章」,用户可以避开,但仍需兜底:退回自动择优
+        if (chapters.isEmpty() && carrier.tocUrl.isNotBlank()) {
+            AppLog.w(TAG, "记住的目录规则无任何匹配,退回自动择优: ${carrier.tocUrl}")
+            carrier.tocUrl = ""
+            TextFile.clear()
+            chapters = TextFile.getChapterList(carrier)
         }
         return try {
             val parsed = chapters.map { chapter ->

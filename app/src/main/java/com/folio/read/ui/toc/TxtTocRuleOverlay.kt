@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.ListItem
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
@@ -60,6 +61,13 @@ fun TxtTocRuleOverlay(
      * 此时点击条目改为打开编辑，避免出现一个点了没反应的入口
      */
     pickEnabled: Boolean = true,
+    /**
+     * 规则预览：规则 id → 该规则能把当前书切出的章节数（尚未算出的条目不在表里）。
+     * 只在「为某本书选规则」时有意义，由调用方在后台逐条试算后填入。
+     */
+    previewCounts: Map<Long, Int> = emptyMap(),
+    /** 预览进度（已算完 / 总数）；null 表示当前没在算 */
+    previewProgress: Pair<Int, Int>? = null,
 ) {
     BackHandler { onDismiss() }
 
@@ -91,6 +99,24 @@ fun TxtTocRuleOverlay(
                 .padding(innerPadding),
         ) {
             LazyColumn(modifier = Modifier.fillMaxSize()) {
+                previewProgress?.let { (done, total) ->
+                    item {
+                        // 预览在后台逐条试算：给出进度，避免用户以为界面卡住
+                        Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
+                            Text(
+                                text = stringResource(R.string.toc_rule_preview_progress, done, total),
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                            LinearProgressIndicator(
+                                progress = { if (total == 0) 0f else done.toFloat() / total },
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(top = 6.dp),
+                            )
+                        }
+                    }
+                }
                 item {
                     Text(
                         text = stringResource(
@@ -119,6 +145,17 @@ fun TxtTocRuleOverlay(
                 items(rules, key = { it.id }, contentType = { it.enable }) { rule ->
                     val isCurrent = rule.rule == currentRule && currentRule.isNotEmpty()
                     ListItem(
+                        overlineContent = {
+                            // 预览结果:这条规则能把当前书切成多少章(选规则的直接依据)。
+                            // 空正则条目是 legado 的兜底规则,语义为「按字数分章」,无需试算。
+                            val count = previewCounts[rule.id]
+                            when {
+                                rule.rule.isBlank() -> CountLabel(stringResource(R.string.toc_rule_by_word_count))
+                                count != null -> CountLabel(stringResource(R.string.toc_rule_chapter_count, count))
+                                previewProgress != null -> CountLabel(stringResource(R.string.toc_rule_counting))
+                                else -> Unit
+                            }
+                        },
                         headlineContent = {
                             Text(
                                 text = rule.name,
@@ -218,6 +255,16 @@ fun TxtTocRuleOverlay(
             },
         )
     }
+}
+
+/** 预览结果的小标（章数/按字数分章/计算中），与支持文本区分开以便一眼扫过 */
+@Composable
+private fun CountLabel(text: String) {
+    Text(
+        text = text,
+        style = MaterialTheme.typography.labelSmall,
+        color = MaterialTheme.colorScheme.primary,
+    )
 }
 
 /** 新建/编辑规则：字段沿用 legado 的 TxtTocRule（名称/正则/示例），并对正则做实时语法校验 */

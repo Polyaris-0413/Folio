@@ -147,6 +147,9 @@ fun ReaderScreen(
     val tocRules = remember { TocRules() }
     val tocRuleList by tocRules.flowAll().collectAsState(initial = emptyList())
     var showTocRule by remember { mutableStateOf(false) }
+    // 规则预览结果(规则 id → 章数)与进度;见下方 LaunchedEffect
+    var previewCounts by remember { mutableStateOf<Map<Long, Int>>(emptyMap()) }
+    var previewProgress by remember { mutableStateOf<Pair<Int, Int>?>(null) }
     // 规则变更后自增,用于触发重新分章(章节缓存键含规则,自动 miss)
     var tocRuleRev by remember { mutableIntStateOf(0) }
 
@@ -230,11 +233,38 @@ fun ReaderScreen(
             }
     }
 
+    // 规则预览:打开规则覆盖层时,在后台逐条试算各规则能把本书切成多少章,
+    // 结果逐条填入(不取正文、不落库,见 TxtTocEngine.countChaptersWithRule)。
+    // key 用「规则 id + 正则」的签名而非整个列表:仅切换启停不必重算。
+    val ruleSignature = tocRuleList.map { it.id to it.rule }
+    LaunchedEffect(showTocRule, ruleSignature) {
+        val target = book
+        if (!showTocRule || target == null) {
+            previewProgress = null
+            previewCounts = emptyMap()
+            return@LaunchedEffect
+        }
+        // 空正则条目语义是「按字数分章」,覆盖层直接按语义展示,无需试算
+        val targets = tocRuleList.filter { it.rule.isNotBlank() }
+        previewCounts = emptyMap()
+        previewProgress = 0 to targets.size
+        for ((index, rule) in targets.withIndex()) {
+            val count = withContext(Dispatchers.Default) {
+                runCatching { TxtTocEngine.countChaptersWithRule(target, rule.rule) }.getOrNull()
+            }
+            if (!showTocRule) return@LaunchedEffect // 覆盖层已关闭,不必继续算
+            if (count != null) previewCounts = previewCounts + (rule.id to count)
+            previewProgress = (index + 1) to targets.size
+        }
+        previewProgress = null
+    }
     // 规则管理与逐本规则选择覆盖层:与目录覆盖层同款,盖在阅读页上
     if (showTocRule) {
         val currentRule = book?.tocRule ?: ""
         TxtTocRuleOverlay(
             rules = tocRuleList,
+            previewCounts = previewCounts,
+            previewProgress = previewProgress,
             currentRule = currentRule,
             onToggle = { id, enabled -> saveScope.launch { tocRules.setEnabled(id, enabled) } },
             onSave = { rule -> saveScope.launch { tocRules.save(rule) } },

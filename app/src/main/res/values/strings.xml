@@ -110,7 +110,7 @@
     <string name="toc_rule_restore">恢复内置</string>
     <string name="toc_rule_restore_confirm">将删除全部预置规则并写回内置规则，自建规则会保留。是否继续？</string>
     <string name="toc_rule_delete">删除规则</string>
-    <string name="toc_rule_delete_confirm">确定删除规则「%1」吗？</string>
+    <string name="toc_rule_delete_confirm">确定删除规则「%1$s」吗？</string>
     <string name="toc_rule_name">名称</string>
     <string name="toc_rule_regex">正则表达式</string>
     <string name="toc_rule_regex_invalid">正则语法错误</string>
@@ -119,4 +119,10 @@
     <string name="toc_rule_builtin_fallback">空正则：按字数分章(兜底)</string>
     <string name="toc_rule_hint_manage">点击或长按规则可编辑；开关控制该规则是否参与自动择优</string>
     <string name="toc_rule_empty">暂无规则。可点右上角「新建」自定义，或「恢复内置」写回内置规则。</string>
+    <string name="settings_split_chapter">超长章节自动拆分</string>
+    <string name="settings_split_chapter_desc">单章超过 100KB 时按字数拆分；关闭后长章保持整章</string>
+    <string name="toc_rule_preview_progress">正在试算 %1$d/%2$d</string>
+    <string name="toc_rule_chapter_count">%1$d 章</string>
+    <string name="toc_rule_counting">计算中…</string>
+    <string name="toc_rule_by_word_count">按字数分章</string>
 </resources>

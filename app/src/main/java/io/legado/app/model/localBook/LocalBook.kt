@@ -62,22 +62,26 @@ object LocalBook {
         return target
     }
 
-    private fun fingerprintOf(context: Context, uriString: String): String =
-        context.contentResolver.query(
-            Uri.parse(uriString),
-            arrayOf(OpenableColumns.SIZE, DocumentsContract.Document.COLUMN_LAST_MODIFIED),
-            null,
-            null,
-            null,
-        )?.use { cursor ->
-            if (cursor.moveToFirst()) {
-                val size = cursor.getColumnIndex(OpenableColumns.SIZE)
-                    .takeIf { it >= 0 }?.let { cursor.getLong(it) } ?: -1L
-                val lastModified = cursor.getColumnIndex(DocumentsContract.Document.COLUMN_LAST_MODIFIED)
-                    .takeIf { it >= 0 }?.let { cursor.getLong(it) } ?: -1L
-                "$size-$lastModified"
-            } else {
-                "unknown"
+    /**
+     * 源文件指纹（大小-修改时间），用于判定缓存文件是否还要重做。
+     *
+     * 两个列**必须分开查**：并非所有 ContentProvider 都支持 `last_modified`
+     * （MediaStore 只有 `date_modified`），合并成一次查询时提供方会直接抛
+     * `IllegalArgumentException: Invalid column last_modified`，导致整本书打不开。
+     * 分开查还能保住大小这一半信息，缓存仍可复用。取不到就回落 "unknown"。
+     */
+    private fun fingerprintOf(context: Context, uriString: String): String {
+        val uri = Uri.parse(uriString)
+        val size = queryLongColumn(context, uri, OpenableColumns.SIZE)
+        val modified = queryLongColumn(context, uri, DocumentsContract.Document.COLUMN_LAST_MODIFIED)
+        return "$size-$modified"
+    }
+
+    private fun queryLongColumn(context: Context, uri: Uri, column: String): Long =
+        runCatching {
+            context.contentResolver.query(uri, arrayOf(column), null, null, null)?.use { cursor ->
+                val index = cursor.getColumnIndex(column)
+                if (cursor.moveToFirst() && index >= 0) cursor.getLong(index) else null
             }
-        } ?: "unknown"
+        }.getOrNull() ?: -1L
 }

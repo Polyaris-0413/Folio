@@ -11,6 +11,8 @@ import android.net.Uri
 import android.provider.DocumentsContract
 import android.provider.OpenableColumns
 import com.folio.read.data.Book
+import com.folio.read.data.SplitChapterSettingsRepository
+import kotlinx.coroutines.flow.first
 
 /** 章节:每章独立正文,标题与正文分离(标题不进 content,渲染时独立显示) */
 data class Chapter(val title: String, val content: String)
@@ -48,12 +50,17 @@ fun querySourceFingerprint(context: Context, filePath: String): String? =
  * ([TxtTocEngine]):内置规则库打分择优 → 按正则切章(字节偏移) → 无规则时按 10KB 字数分章。
  * 相比此前的「单条硬编码正则 + 整本一章兜底」,规则可增删改,且任何书都有可跳转的目录。
  */
-suspend fun readBook(context: Context, book: Book, splitLongChapter: Boolean = true): BookContent {
+suspend fun readBook(context: Context, book: Book): BookContent {
     val ext = book.filePath.substringAfterLast('.', "").lowercase()
     return when (ext) {
         "epub" -> BookContent(EpubParser.parse(context, book.filePath))
         "azw3", "mobi" -> BookContent(MobiParser.parse(context, book.filePath))
-        else -> TxtTocEngine.parse(context, book, splitLongChapter)
+        // 超长章节自动拆分在解析处直接读设置,而非把同一个值穿过阅读页/预读/朗读三个装载点
+        else -> TxtTocEngine.parse(
+            context = context,
+            book = book,
+            splitLongChapter = SplitChapterSettingsRepository(context).splitLongChapter.first(),
+        )
     }
 }
 

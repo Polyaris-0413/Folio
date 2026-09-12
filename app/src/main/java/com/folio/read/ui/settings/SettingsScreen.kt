@@ -137,6 +137,9 @@ fun SettingsScreen(
     onTitleCleanChange: (Boolean) -> Unit,
     /** 打开 TXT 目录规则管理(自 legado 移植的规则库;阅读页目录顶栏也有入口) */
     onOpenTocRule: () -> Unit,
+    /** 超长章节自动拆分(legado 的 splitLongChapter,默认开) */
+    splitLongChapter: Boolean,
+    onSplitLongChapterChange: (Boolean) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val context = LocalContext.current
@@ -292,7 +295,7 @@ fun SettingsScreen(
                         },
                         colors = listItemColors(),
                         modifier = Modifier
-                            .clip(groupItemShape(0, 2))
+                            .clip(groupItemShape(0, 3))
                             .clickable { showPageTurnDialog = true },
                     )
                     ListItem(
@@ -300,8 +303,21 @@ fun SettingsScreen(
                         leadingContent = { SettingsIcon(R.drawable.ic_toc) },
                         colors = listItemColors(),
                         modifier = Modifier
-                            .clip(groupItemShape(1, 2))
+                            .clip(groupItemShape(1, 3))
                             .clickable { onOpenTocRule() },
+                    )
+                    ListItem(
+                        headlineContent = { Text(text = stringResource(R.string.settings_split_chapter)) },
+                        supportingContent = { Text(text = stringResource(R.string.settings_split_chapter_desc)) },
+                        leadingContent = { SettingsIcon(R.drawable.ic_settings_mode) },
+                        trailingContent = {
+                            Switch(
+                                checked = splitLongChapter,
+                                onCheckedChange = onSplitLongChapterChange,
+                            )
+                        },
+                        colors = listItemColors(),
+                        modifier = Modifier.clip(groupItemShape(2, 3)),
                     )
                 }
             }
