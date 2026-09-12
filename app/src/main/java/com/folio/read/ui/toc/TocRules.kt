@@ -1,5 +1,8 @@
 package com.folio.read.ui.toc
 
+import androidx.room.withTransaction
+import com.folio.read.data.AppDatabase
+import io.legado.app.PortingContext
 import io.legado.app.data.entities.TxtTocRule
 import io.legado.app.data.repository.TxtTocRuleRepository
 import io.legado.app.help.DefaultData
@@ -47,8 +50,7 @@ private fun TocRuleUi.toEntity(id: Long) = TxtTocRule(
  * 规则库读写入口。
  *
  * 移植来的 [TxtTocRuleRepository] 是逐字节搬运的（由 `scripts/check-port-drift.sh` 把关），
- * 因此 Folio 侧的动作写在这里，而不是去改搬运文件。用到的都是它已有的方法
- * （`enableByIds`/`deleteByIds`/`insert`），没有另造一套 DAO 调用。
+ * 因此 Folio 侧的动作写在这里，而不是去改搬运文件。
  */
 class TocRules {
 
@@ -81,10 +83,21 @@ class TocRules {
     /**
      * 恢复内置规则：删掉全部预置规则（id < 0）再整批写回，用户自建规则（id > 0）保留。
      * 语义照 legado `DefaultData.importDefaultTocRules()`（先 `deleteDefault()` 再 insert）。
+     *
+     * **删除与写回必须在同一个事务里**：分两次写会让 Room 的 Flow 先发一版「预置规则都没了」
+     * 的列表（可能是空的），界面就会闪出一帧空列表/空态文案，再恢复成完整列表。
+     * 这里直接调 DAO（Room 的 `withTransaction` 要求块内用同一连接，不能经过仓储里
+     * 各自 `withContext` 的包装），移植仓储本身保持逐字节不变。
      */
     suspend fun restoreBuiltIn() {
         val builtIn = DefaultData.txtTocRules
-        repo.deleteByIds(builtIn.map { it.id })
-        repo.insert(*builtIn.toTypedArray())
+        val ids = builtIn.map { it.id }.toSet()
+        val db = AppDatabase.getInstance(PortingContext.required)
+        db.withTransaction {
+            val dao = db.txtTocRuleDao
+            val existing = dao.getByIds(ids)
+            if (existing.isNotEmpty()) dao.delete(*existing.toTypedArray())
+            dao.insert(*builtIn.toTypedArray())
+        }
     }
 }
