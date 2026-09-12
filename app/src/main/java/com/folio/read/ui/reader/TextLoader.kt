@@ -1,7 +1,7 @@
 package com.folio.read.ui.reader
 
 /*
- * 段落处理与前言章节设计移植自 legado(https://github.com/gedoor/legado)
+ * 段落缩进与句读切片移植自 legado(https://github.com/gedoor/legado)
  * 经 legado-with-MD3(https://github.com/HapeLee/legado-with-MD3)参考
  * SPDX-License-Identifier: GPL-3.0-only
  */
@@ -10,12 +10,17 @@ import android.content.Context
 import android.net.Uri
 import android.provider.DocumentsContract
 import android.provider.OpenableColumns
-import java.nio.ByteBuffer
-import java.nio.charset.Charset
-import java.nio.charset.CodingErrorAction
+import com.folio.read.data.Book
 
 /** 章节:每章独立正文,标题与正文分离(标题不进 content,渲染时独立显示) */
 data class Chapter(val title: String, val content: String)
+
+/**
+ * 解析结果:章节列表 + 本次实际生效的 TXT 目录规则。
+ * tocRule 为空串表示两种情况:引擎走了「无规则→按字数分章」的兜底,或本书不是 TXT
+ * (epub/mobi 的章节来自各自解析器,与目录规则无关)。
+ */
+data class BookContent(val chapters: List<Chapter>, val tocRule: String = "")
 
 /** 源文件指纹:SAF 可查询的大小与最后修改时间,文件变更后缓存自动失效 */
 fun querySourceFingerprint(context: Context, filePath: String): String? =
@@ -37,76 +42,24 @@ fun querySourceFingerprint(context: Context, filePath: String): String? =
         }
     }
 
-/** 按扩展名分派读书:.txt 走 readText+processParagraphs+按标题块切章;.epub/.azw3 用解析器逐章产 Chapter */
-fun readBook(context: Context, filePath: String): List<Chapter> {
-    val ext = filePath.substringAfterLast('.', "").lowercase()
+/**
+ * 按扩展名分派读书。
+ * epub/azw3/mobi 用各自的解析器逐章产出;其余(含 .txt)交给移植自 legado 的目录引擎
+ * ([TxtTocEngine]):内置规则库打分择优 → 按正则切章(字节偏移) → 无规则时按 10KB 字数分章。
+ * 相比此前的「单条硬编码正则 + 整本一章兜底」,规则可增删改,且任何书都有可跳转的目录。
+ */
+suspend fun readBook(context: Context, book: Book, splitLongChapter: Boolean = true): BookContent {
+    val ext = book.filePath.substringAfterLast('.', "").lowercase()
     return when (ext) {
-        "epub" -> EpubParser.parse(context, filePath)
-        "azw3", "mobi" -> MobiParser.parse(context, filePath)
-        else -> buildTxtChapters(readText(context, filePath))
+        "epub" -> BookContent(EpubParser.parse(context, book.filePath))
+        "azw3", "mobi" -> BookContent(MobiParser.parse(context, book.filePath))
+        else -> TxtTocEngine.parse(context, book, splitLongChapter)
     }
 }
 
-/** 读取 TXT:UTF-8 严格解码,失败回落 GBK(中文 txt 常见编码) */
-fun readText(context: Context, filePath: String): String {
-    val bytes = context.contentResolver.openInputStream(Uri.parse(filePath))?.use { it.readBytes() }
-        ?: throw IllegalStateException("无法打开文件")
-    if (bytes.size >= 3 &&
-        bytes[0] == 0xEF.toByte() && bytes[1] == 0xBB.toByte() && bytes[2] == 0xBF.toByte()
-    ) {
-        return bytes.toString(Charsets.UTF_8).removePrefix("\uFEFF")
-    }
-    return runCatching {
-        Charsets.UTF_8.newDecoder()
-            .onMalformedInput(CodingErrorAction.REPORT)
-            .onUnmappableCharacter(CodingErrorAction.REPORT)
-            .decode(ByteBuffer.wrap(bytes))
-            .toString()
-    }.getOrElse {
-        Charset.forName("GBK").decode(ByteBuffer.wrap(bytes)).toString()
-    }
-}
-
-/** 段落缩进 + 前言:照搬 Legado ContentProcessor.getContent(段落处理)与 TextFile.analyze(前言章节设计)。
- * 按行切分,行首尾空白(ASCII<=0x20 与全角空格)清掉,非空行前加两个全角空格,空行丢弃,
- * 章节标题行不缩进(与 Legado 一致);书内有章节标题且正文前有内容时,开头插入「前言」标题行,
- * 读者第一页即可见「前言」而非莫名杂项 */
-fun processParagraphs(text: String): String {
-    val lines = text.split('\n')
-        .map { it.trim { c -> c.code <= 0x20 || c == '　' } }
-        .filter { it.isNotEmpty() }
-    val firstTitleIndex = lines.indexOfFirst { ChapterDetector.isTitleLine(it) }
-    val body = lines.joinToString("\n") { line ->
-        if (ChapterDetector.isTitleLine(line)) line else "　　$line"
-    }
-    return if (firstTitleIndex > 0) "前言\n$body" else body
-}
-
-/** TXT 章节切分:整本处理(缩进+前言)后,按章节标题块切成「每章独立 content」。
- * 标题 = 块首行(独立,不进 content);正文 = 块内剩余行(已缩进)。
- * 无任何章节标题的书:整本作一章、标题置空(避免把首段当标题加粗)。 */
-fun buildTxtChapters(rawText: String): List<Chapter> {
-    val processed = processParagraphs(rawText)
-    val starts = ChapterDetector.detectChapterStarts(processed)
-    // ChapterDetector 无标题时回退 [0];此时整本一章且首行并非标题 → 标题置空
-    val firstLineEnd = processed.indexOf('\n').let { if (it == -1) processed.length else it }
-    val singleNoTitleBlock = starts.size == 1 && starts[0] == 0 &&
-        !ChapterDetector.isTitleLine(processed.substring(0, firstLineEnd).trim())
-    if (singleNoTitleBlock) return listOf(Chapter("", processed))
-    return starts.mapIndexed { i, s ->
-        val e = if (i + 1 < starts.size) starts[i + 1] else processed.length
-        val lineEnd = processed.indexOf('\n', s).let { if (it == -1 || it > e) e else it }
-        val title = processed.substring(s, lineEnd).trim()
-        val content = processed.substring(lineEnd + 1, e).trimStart('\n', '\r')
-        Chapter(title, content)
-    }
-}
-
-/** 段落缩进(epub/azw3 html→纯文本后):每段前加两个全角空格,空行丢弃。
+/** 段落缩进(epub/azw3 html→纯文本后,以及目录引擎取出的每章正文):每段前加两个全角空格,空行丢弃。
  * 照搬 Legado ContentProcessor.getContent(读者路径 includeTitle=false)末段对每段前置 paragraphIndent。
  * HtmlToText 已对齐 Legado HtmlFormatter(块级标签→换行、\s*\n+\s* 折叠),有块级标签的书此处按 \n 分段。
- * 与 processParagraphs 不同:不做「前言」插入(epub/azw3 章节来自 NCX,无前言语义),
- * 也不按章节标题行判断是否缩进(epub/azw3 正文行不作标题识别,所有段落统一缩进)。
  * 无 <p>/<div>/<br> 块级标签的 epub(如罗杰疑案)HtmlToText 产出一整行、段落间以句末标点后空格分隔;
  * 此种零换行时把「句末标点+空格」转成换行作段落分隔——中文正文句末后本不空格,空格即段落区分;
  * 引号/括号内句子末尾后紧跟引号,空格前不是句末标点,不会误切对话。 */

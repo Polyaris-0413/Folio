@@ -24,20 +24,26 @@ suspend fun preWarmBook(
     textWidth: Int,
     textHeight: Int,
 ) {
-    // 1) 章节列表:内存缓存 → 整本读取/解析,回写内存缓存
+    // 1) 章节列表:内存缓存 → 解析,回写内存缓存
     val fp = withContext(Dispatchers.IO) {
         runCatching { querySourceFingerprint(context, book.filePath) }.getOrElse { e ->
             AppLog.w("FolioReader", "预读指纹查询失败: $e", e)
             null
         }
     } ?: return
-    val chapters = ReaderCache.memoryLoadChapters(book.id, fp) ?: withContext(Dispatchers.IO) {
-        runCatching { readBook(context, book.filePath) }.getOrElse { e ->
-            AppLog.w("FolioReader", "预读解析失败: $e", e)
-            null
-        }
-    } ?: return
-    ReaderCache.memoryStoreChapters(book.id, fp, chapters)
+    val cached = ReaderCache.memoryLoadChapters(book.id, fp, book.tocRule)
+    val content = if (cached != null) {
+        BookContent(cached, book.tocRule)
+    } else {
+        withContext(Dispatchers.IO) {
+            runCatching { readBook(context, book) }.getOrElse { e ->
+                AppLog.w("FolioReader", "预读解析失败: $e", e)
+                null
+            }
+        } ?: return
+    }
+    ReaderCache.memoryStoreChapters(book.id, fp, content.tocRule, content.chapters)
+    val chapters = content.chapters
     if (chapters.isEmpty()) return
 
     // 2) 当前章分页:与阅读页同款测量,只填空(已有缓存不重算,避免与阅读页并发写)

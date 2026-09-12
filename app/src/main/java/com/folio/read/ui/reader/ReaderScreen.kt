@@ -157,27 +157,27 @@ fun ReaderScreen(
         }
         sourceFp = fp
         // 1) 进程内存章节缓存:同一进程内重开零 IO/零解析,秒出
-        ReaderCache.memoryLoadChapters(loaded.id, fp)?.let {
+        //    键含本书生效的目录规则(空=自动择优),换规则后自动重分章
+        ReaderCache.memoryLoadChapters(loaded.id, fp, loaded.tocRule)?.let {
             chapters = it
             return@LaunchedEffect
         }
-        // 2) 整本读取/解析(epub/azw3→解析器;txt→readText+processParagraphs+按标题块切章),回写内存缓存
+        // 2) 按扩展名解析(epub/azw3/mobi→解析器;txt→移植的 legado 目录引擎),回写内存缓存
         val parsed = withContext(Dispatchers.IO) {
             try {
-                readBook(context, loaded.filePath)
+                readBook(context, loaded)
             } catch (e: Throwable) {
                 AppLog.e("FolioReader", "readBook 失败: $e", e)
                 null
             }
         }
-        if (parsed == null) {
-            loadFailed = true
-        } else if (parsed.isEmpty()) {
-            // 解析成功但无任何章节:视为无法阅读(可能损坏/空文件)
+        if (parsed == null || parsed.chapters.isEmpty()) {
+            // 解析失败或成功但无任何章节:视为无法阅读(可能损坏/空文件)
             loadFailed = true
         } else {
-            chapters = parsed
-            ReaderCache.memoryStoreChapters(loaded.id, fp, parsed)
+            chapters = parsed.chapters
+            // 用「本次生效的规则」作缓存键,与 books.tocRule 落库值一致,下次打开可直接命中
+            ReaderCache.memoryStoreChapters(loaded.id, fp, parsed.tocRule, parsed.chapters)
         }
     }
 

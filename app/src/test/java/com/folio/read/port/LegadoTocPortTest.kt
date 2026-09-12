@@ -1,6 +1,5 @@
 package com.folio.read.port
 
-import com.folio.read.ui.reader.ChapterDetector
 import io.legado.app.data.entities.Book
 import io.legado.app.data.entities.BookChapter
 import io.legado.app.help.DefaultData
@@ -57,19 +56,18 @@ class LegadoTocPortTest {
     }
 
     @Test
-    fun `serialNumber 为 1 的目录规则与 Folio 既有识别结果一致`() {
+    fun `serialNumber 为 1 的目录规则条目与资产定义一致`() {
         val rule = loadRules().single { it.serialNumber == 1 }
         assertEquals(-2L, rule.id)
         assertEquals("目录", rule.name)
         assertTrue("该规则应默认启用", rule.enable)
-        // 该条目即 legado 默认「目录」规则,ChapterDetector 的正则以它为底(另加装饰符前缀等 Folio 扩展);
-        // 因此凡它自己的示例行,两者都必须判为章节标题
+        // 该条目即 legado 默认「目录」规则(此前 Folio 的 ChapterDetector 硬编码正则以它为底,
+        // 另加了装饰符前缀等扩展;本次移植后由规则库整体取代,故只校验规则本身可用)
         val example = rule.example ?: error("serialNumber=1 的规则应带 example")
         assertTrue(
             "asset 规则应命中自身示例: $example",
             Regex(rule.rule, RegexOption.MULTILINE).matches(example),
         )
-        assertTrue("ChapterDetector 也应命中该示例", ChapterDetector.isTitleLine(example))
     }
 
     // ---------- 编码探测(移植的 icu4j) ----------

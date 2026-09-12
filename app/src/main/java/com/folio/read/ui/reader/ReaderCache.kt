@@ -11,16 +11,31 @@ import java.io.File
  */
 object ReaderCache {
 
-    /** 进程内章节列表缓存:同一进程重开直接命中,避免每次重解析整本 */
-    private var memChapters: Triple<Long, String?, List<Chapter>>? = null // bookId, sourceFp, chapters
+    /**
+     * 进程内章节列表缓存:同一进程重开直接命中,避免每次重解析整本。
+     * 键包含源文件指纹与**本次生效的目录规则**:换规则(sharpen 或改坏)必须重分章,
+     * 否则会拿着旧章节边界去套新正文。
+     */
+    private data class MemChapters(
+        val bookId: Long,
+        val sourceFp: String?,
+        val tocRule: String,
+        val chapters: List<Chapter>,
+    )
 
-    fun memoryLoadChapters(bookId: Long, sourceFp: String?): List<Chapter>? {
+    private var memChapters: MemChapters? = null
+
+    fun memoryLoadChapters(bookId: Long, sourceFp: String?, tocRule: String): List<Chapter>? {
         val c = memChapters ?: return null
-        return if (c.first == bookId && c.second == sourceFp) c.third else null
+        return if (c.bookId == bookId && c.sourceFp == sourceFp && c.tocRule == tocRule) {
+            c.chapters
+        } else {
+            null
+        }
     }
 
-    fun memoryStoreChapters(bookId: Long, sourceFp: String?, chapters: List<Chapter>) {
-        memChapters = Triple(bookId, sourceFp, chapters)
+    fun memoryStoreChapters(bookId: Long, sourceFp: String?, tocRule: String, chapters: List<Chapter>) {
+        memChapters = MemChapters(bookId, sourceFp, tocRule, chapters)
     }
 
     private fun file(context: Context, bookId: Long, suffix: String): File {

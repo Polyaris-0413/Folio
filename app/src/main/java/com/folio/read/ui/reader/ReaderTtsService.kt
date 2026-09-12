@@ -268,22 +268,27 @@ class ReaderTtsService : Service() {
                 return@launch
             }
             val fp = querySourceFingerprint(this@ReaderTtsService, loaded.filePath)
-            // 章节:进程内缓存 → 整本读取/解析(readBook 返回每章独立 content),回写内存缓存
-            val loadedChapters = ReaderCache.memoryLoadChapters(bookId, fp)
-                ?: withContext(Dispatchers.IO) {
-                    runCatching { readBook(this@ReaderTtsService, loaded.filePath) }.getOrElse { e ->
+            // 章节:进程内缓存 → 按扩展名解析(readBook 返回每章独立 content),回写内存缓存
+            val cached = ReaderCache.memoryLoadChapters(bookId, fp, loaded.tocRule)
+            val content = if (cached != null) {
+                BookContent(cached, loaded.tocRule)
+            } else {
+                withContext(Dispatchers.IO) {
+                    runCatching { readBook(this@ReaderTtsService, loaded) }.getOrElse { e ->
                         AppLog.w(TAG, "TTS 整本解析失败: $e", e)
                         null
                     }
                 }
-            if (loadedChapters == null || loadedChapters.isEmpty()) {
+            }
+            if (content == null || content.chapters.isEmpty()) {
                 AppLog.w(TAG, "startReading: chapters empty")
                 loading = false
                 errorMsg.value = getString(R.string.tts_load_failed)
                 stopSelf()
                 return@launch
             }
-            ReaderCache.memoryStoreChapters(bookId, fp, loadedChapters)
+            val loadedChapters = content.chapters
+            ReaderCache.memoryStoreChapters(bookId, fp, content.tocRule, loadedChapters)
             book = loaded
             chapters = loadedChapters
             coverBitmap = renderBookCover(loaded)
