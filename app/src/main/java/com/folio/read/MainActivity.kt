@@ -967,11 +967,11 @@ private fun AppRoot(
                     rules = tocRuleList,
                     currentRule = "",
                     pickEnabled = false,
-                    onToggle = { rule, enabled ->
-                        appScope.launch { tocRules.setEnabled(rule, enabled) }
+                    onToggle = { id, enabled ->
+                        appScope.launch { tocRules.setEnabled(id, enabled) }
                     },
                     onSave = { rule -> appScope.launch { tocRules.save(rule) } },
-                    onDelete = { rule -> appScope.launch { tocRules.delete(rule) } },
+                    onDelete = { id -> appScope.launch { tocRules.delete(id) } },
                     onRestoreBuiltIn = { appScope.launch { tocRules.restoreBuiltIn() } },
                     onPick = {},
                     onDismiss = { showTocRule = false },

@@ -236,9 +236,9 @@ fun ReaderScreen(
         TxtTocRuleOverlay(
             rules = tocRuleList,
             currentRule = currentRule,
-            onToggle = { rule, enabled -> saveScope.launch { tocRules.setEnabled(rule, enabled) } },
+            onToggle = { id, enabled -> saveScope.launch { tocRules.setEnabled(id, enabled) } },
             onSave = { rule -> saveScope.launch { tocRules.save(rule) } },
-            onDelete = { rule -> saveScope.launch { tocRules.delete(rule) } },
+            onDelete = { id -> saveScope.launch { tocRules.delete(id) } },
             onRestoreBuiltIn = { saveScope.launch { tocRules.restoreBuiltIn() } },
             onPick = { pattern ->
                 val target = book

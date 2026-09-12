@@ -29,7 +29,6 @@ import androidx.compose.ui.unit.dp
 import com.folio.read.R
 import com.folio.read.ui.components.FolioAlertDialog
 import com.folio.read.ui.components.FolioTopBar
-import io.legado.app.data.entities.TxtTocRule
 
 /**
  * TXT 目录规则覆盖层（单 Activity 阅读页内，与 [com.folio.read.ui.reader.TocOverlay] 同款形态）。
@@ -40,15 +39,18 @@ import io.legado.app.data.entities.TxtTocRule
  *  - 右侧开关 = 启用/停用该规则（参与打分择优）；
  *  - 长按 = 编辑（含删除）；
  *  - 顶栏 = 新建 / 恢复内置规则。
+ *
+ * 入参用 [TocRuleUi] 而非移植来的 `TxtTocRule`，原因见 [TocRuleUi] 的注释（相等语义与
+ * Compose 状态判定的冲突）。
  */
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun TxtTocRuleOverlay(
-    rules: List<TxtTocRule>,
+    rules: List<TocRuleUi>,
     currentRule: String,
-    onToggle: (TxtTocRule, Boolean) -> Unit,
-    onSave: (TxtTocRule) -> Unit,
-    onDelete: (TxtTocRule) -> Unit,
+    onToggle: (id: Long, enabled: Boolean) -> Unit,
+    onSave: (TocRuleUi) -> Unit,
+    onDelete: (id: Long) -> Unit,
     onRestoreBuiltIn: () -> Unit,
     /** 传空串表示清除本书规则、回到自动择优 */
     onPick: (String) -> Unit,
@@ -61,10 +63,10 @@ fun TxtTocRuleOverlay(
 ) {
     BackHandler { onDismiss() }
 
-    var editing by remember { mutableStateOf<TxtTocRule?>(null) }
+    var editing by remember { mutableStateOf<TocRuleUi?>(null) }
     var creating by remember { mutableStateOf(false) }
     var confirmRestore by remember { mutableStateOf(false) }
-    var confirmDelete by remember { mutableStateOf<TxtTocRule?>(null) }
+    var confirmDelete by remember { mutableStateOf<TocRuleUi?>(null) }
 
     Scaffold(
         modifier = Modifier.fillMaxSize(),
@@ -134,7 +136,7 @@ fun TxtTocRuleOverlay(
                         trailingContent = {
                             Switch(
                                 checked = rule.enable,
-                                onCheckedChange = { onToggle(rule, it) },
+                                onCheckedChange = { onToggle(rule.id, it) },
                             )
                         },
                         modifier = Modifier.combinedClickable(
@@ -181,7 +183,7 @@ fun TxtTocRuleOverlay(
             text = { Text(stringResource(R.string.toc_rule_delete_confirm, deleteTarget.name)) },
             confirmButton = {
                 TextButton(onClick = {
-                    onDelete(deleteTarget)
+                    onDelete(deleteTarget.id)
                     confirmDelete = null
                 }) { Text(stringResource(R.string.shelf_delete_confirm)) }
             },
@@ -213,12 +215,12 @@ fun TxtTocRuleOverlay(
     }
 }
 
-/** 新建/编辑规则：字段与 legado 的 TxtTocRule 一致（名称/正则/示例），并对正则做实时语法校验 */
+/** 新建/编辑规则：字段沿用 legado 的 TxtTocRule（名称/正则/示例），并对正则做实时语法校验 */
 @Composable
 private fun RuleEditDialog(
-    initial: TxtTocRule?,
+    initial: TocRuleUi?,
     onDismiss: () -> Unit,
-    onSave: (TxtTocRule) -> Unit,
+    onSave: (TocRuleUi) -> Unit,
     onDelete: (() -> Unit)? = null,
 ) {
     var name by remember { mutableStateOf(initial?.name.orEmpty()) }
@@ -280,18 +282,15 @@ private fun RuleEditDialog(
                 enabled = canSave,
                 onClick = {
                     onSave(
-                        initial?.copy(
+                        TocRuleUi(
+                            id = initial?.id ?: TocRuleUi.NEW_ID,
                             name = name,
                             rule = rule,
                             example = example.ifBlank { null },
-                        ) ?: TxtTocRule(
-                            // 与 legado 同款:自建规则用当前时间戳作 id(预置规则为负数)
-                            id = System.currentTimeMillis(),
-                            name = name,
-                            rule = rule,
-                            example = example.ifBlank { null },
-                            serialNumber = -1,
-                            enable = true,
+                            // 新建规则排到末尾:serialNumber 取 -1(与 legado 数据类默认值一致),
+                            // 实际顺序由用户后续编辑调整
+                            serialNumber = initial?.serialNumber ?: -1,
+                            enable = initial?.enable ?: true,
                         ),
                     )
                 },
