@@ -21,6 +21,8 @@ coreSplashscreen = "1.2.0"
 navigationCompose = "2.9.8"
 profileinstaller = "1.4.1"
 benchmark = "1.5.0-rc01"
+# 仅测试域:JVM 单测里替代 mockable android.jar 中不可用的 org.json 桩(运行时用平台自带)
+json = "20240303"
 # 与 Legado 一致;1.16.2 起有破坏性变更(如 \v 匹配行为),勿升级(见 https://github.com/jhy/jsoup/pull/2017)
 jsoup = "1.16.2"
 
@@ -53,6 +55,7 @@ androidx-navigation-compose = { group = "androidx.navigation", name = "navigatio
 androidx-profileinstaller = { group = "androidx.profileinstaller", name = "profileinstaller", version.ref = "profileinstaller" }
 androidx-benchmark-macro-junit4 = { group = "androidx.benchmark", name = "benchmark-macro-junit4", version.ref = "benchmark" }
 jsoup = { group = "org.jsoup", name = "jsoup", version.ref = "jsoup" }
+json = { group = "org.json", name = "json", version.ref = "json" }
 
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }

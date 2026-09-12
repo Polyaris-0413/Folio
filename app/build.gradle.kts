@@ -112,6 +112,9 @@ dependencies {
     implementation(libs.okhttp)
     implementation(libs.jsoup)
     testImplementation(libs.junit)
+    // JVM 单测需要真实 org.json:mockable android.jar 里的 org.json 是抛异常的桩,
+    // 而 DefaultData 解析内置目录规则用的正是平台自带 org.json
+    testImplementation(libs.json)
     androidTestImplementation(platform(libs.androidx.compose.bom))
     androidTestImplementation(libs.androidx.compose.ui.test.junit4)
     androidTestImplementation(libs.androidx.espresso.core)

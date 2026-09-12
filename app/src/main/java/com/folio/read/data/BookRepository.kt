@@ -119,6 +119,9 @@ class BookRepository(context: Context) {
         dao.updateTitle(id, title)
     }
 
+    /** 记录本书择优选中的 TXT 目录正则(对应 legado 的 book.tocUrl);空串=自动择优 */
+    suspend fun updateTocRule(id: Long, rule: String) = dao.updateTocRule(id, rule)
+
     /** 源文件当前是否可读(SAF 查询);外部删除/权限丢失/URI 失效时返回 false,不抛异常。
      * suspend + IO:点书前检查走 binder,主线程会卡(点书瞬间数百 ms 掉帧),挪后台 */
     suspend fun isReadable(book: Book): Boolean = withContext(Dispatchers.IO) {

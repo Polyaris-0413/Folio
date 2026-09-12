@@ -32,6 +32,10 @@ interface BookDao {
     @Query("UPDATE books SET title = :title WHERE id = :id")
     suspend fun updateTitle(id: Long, title: String)
 
+    /** 记录本书择优选中的 TXT 目录正则(对应 legado 的 book.tocUrl);空串=自动择优 */
+    @Query("UPDATE books SET tocRule = :rule WHERE id = :id")
+    suspend fun updateTocRule(id: Long, rule: String)
+
     @Query("DELETE FROM books WHERE id = :id")
     suspend fun delete(id: Long)
 }

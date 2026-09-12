@@ -6,15 +6,23 @@ import androidx.room.Room
 import androidx.room.RoomDatabase
 import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
+import io.legado.app.data.dao.TxtTocRuleDao
+import io.legado.app.data.entities.TxtTocRule
 
 @Database(
-    entities = [Book::class],
-    version = 8,
+    entities = [Book::class, TxtTocRule::class],
+    version = 10,
     exportSchema = true,
 )
 abstract class AppDatabase : RoomDatabase() {
 
     abstract fun bookDao(): BookDao
+
+    /**
+     * TXT 目录规则表(自 legado 移植,见 io.legado.app 包下的说明)。
+     * 声明为 val 而非函数:搬过来的 legado 代码以 `appDb.txtTocRuleDao` 属性形式访问。
+     */
+    abstract val txtTocRuleDao: TxtTocRuleDao
 
     companion object {
         @Volatile
@@ -116,6 +124,33 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
+        /**
+         * v8 → v9:新增 TXT 目录规则表(自 legado 移植,规则库+择优引擎的存储)。
+         * 建表语句取自 legado 的 Room schema(io.legado.app.data.AppDatabase/94.json 的
+         * txtTocRules 定义),字段与约束保持一致,便于两侧规则相互导入。
+         */
+        private val MIGRATION_8_9 = object : Migration(8, 9) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    "CREATE TABLE IF NOT EXISTS `txtTocRules` (`id` INTEGER NOT NULL, " +
+                        "`name` TEXT NOT NULL, `rule` TEXT NOT NULL, `example` TEXT, " +
+                        "`serialNumber` INTEGER NOT NULL, `enable` INTEGER NOT NULL, " +
+                        "PRIMARY KEY(`id`))",
+                )
+            }
+        }
+
+        /**
+         * v9 → v10:books 新增 tocRule(记住本书选中的 TXT 目录正则,对应 legado 的 book.tocUrl)。
+         * 存量行回填空串=自动择优,行为与升级前的单正则识别一致(下次打开时由引擎择优并写回)。
+         * DEFAULT 的写法与既有 MIGRATION_7_8(lastReadAt) 保持一致。
+         */
+        private val MIGRATION_9_10 = object : Migration(9, 10) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE books ADD COLUMN tocRule TEXT NOT NULL DEFAULT ''")
+            }
+        }
+
         fun getInstance(context: Context): AppDatabase =
             instance ?: synchronized(this) {
                 instance ?: Room.databaseBuilder(
@@ -125,7 +160,7 @@ abstract class AppDatabase : RoomDatabase() {
                 )
                     .addMigrations(
                         MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6,
-                        MIGRATION_6_7, MIGRATION_7_8,
+                        MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10,
                     )
                     .build()
                     .also { instance = it }

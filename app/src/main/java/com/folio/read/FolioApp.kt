@@ -22,6 +22,9 @@ class FolioApp : Application() {
 
     override fun onCreate() {
         super.onCreate()
+        // 移植自 legado 的代码以全局 appDb/DefaultData 形式访问宿主,Folio 无 splitties 的 appCtx,
+        // 由此处注入 Application Context(须早于任何目录解析)
+        io.legado.app.PortingContext.init(this)
         prewarmBookCovers()
         // buildConfig 未开启,用可调试标志位判断 debug 构建
         val isDebuggable = (applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE) != 0

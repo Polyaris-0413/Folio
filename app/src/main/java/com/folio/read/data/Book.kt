@@ -28,4 +28,11 @@ data class Book(
     val currentChapterIndex: Int = 0,
     /** 章内字符偏移(该页起始字符在章内的位置) */
     val chapterPosition: Int = 0,
+    /**
+     * 本书选中的 TXT 目录正则,为空表示「自动择优」。
+     * 语义对应 legado 的 `Book.tocUrl`(那边存完整的 pattern 字符串);
+     * 由移植的目录引擎在首次解析后写回,用户也可在目录规则预览页手动指定。
+     * 它是章节缓存的键之一:换规则必须重分章。
+     */
+    val tocRule: String = "",
 )
