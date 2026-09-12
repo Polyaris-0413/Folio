@@ -111,7 +111,12 @@ fun TxtTocRuleOverlay(
                         )
                     }
                 }
-                items(rules, key = { it.id }) { rule ->
+                // contentType 按开关状态分组:LazyColumn 只会在同一 contentType 内复用条目组合。
+                // M3 的 Switch 把滑块的动画状态存在 Modifier.Node 的普通字段(非 remember 状态),
+                // 若「开」与「关」的条目共用复用池,回收来的节点会带着相反状态的旧位置,
+                // 新条目一出现就从旧位置滑到新位置——表现为滚动时开关重播切换动画。
+                // 现象规律也印证:全部开启或全部关闭时不复现,状态混杂时才复现。
+                items(rules, key = { it.id }, contentType = { it.enable }) { rule ->
                     val isCurrent = rule.rule == currentRule && currentRule.isNotEmpty()
                     ListItem(
                         headlineContent = {
