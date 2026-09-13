@@ -22,7 +22,12 @@ import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.Button
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.LinearProgressIndicator
+import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.material3.ListItem
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
@@ -34,6 +39,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -48,6 +54,7 @@ import com.folio.read.ui.components.FolioTopBar
 import com.folio.read.ui.components.groupItemShape
 import com.folio.read.ui.components.groupItemSpacing
 import com.folio.read.ui.components.listItemColors
+import kotlinx.coroutines.launch
 
 /**
  * TXT 目录规则覆盖层（单 Activity 阅读页内，与 [com.folio.read.ui.reader.TocOverlay] 同款形态）。
@@ -319,7 +326,7 @@ fun TxtTocRuleOverlay(
 
     val editTarget = editing
     if (editTarget != null) {
-        RuleEditDialog(
+        RuleEditSheet(
             initial = editTarget,
             onDismiss = { editing = null },
             onSave = {
@@ -333,7 +340,7 @@ fun TxtTocRuleOverlay(
         )
     }
     if (creating) {
-        RuleEditDialog(
+        RuleEditSheet(
             initial = null,
             onDismiss = { creating = false },
             onSave = {
@@ -395,9 +402,14 @@ fun TxtTocRuleOverlay(
 }
 
 
-/** 新建/编辑规则：字段沿用 legado 的 TxtTocRule（名称/正则/示例），并对正则做实时语法校验 */
+/**
+ * 新建/编辑规则：字段沿用 legado 的 TxtTocRule（名称/正则/示例）。
+ * 表单走 ModalBottomSheet——与设置页的 AI 配置表单同一范式：输入法弹出时不顶破布局、
+ * 内容可滚动，而 AlertDialog 的 text 槽不保证这些。
+ */
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun RuleEditDialog(
+private fun RuleEditSheet(
     initial: TocRuleUi?,
     onDismiss: () -> Unit,
     onSave: (TocRuleUi) -> Unit,
@@ -406,6 +418,8 @@ private fun RuleEditDialog(
     var name by remember { mutableStateOf(initial?.name.orEmpty()) }
     var rule by remember { mutableStateOf(initial?.rule.orEmpty()) }
     var example by remember { mutableStateOf(initial?.example.orEmpty()) }
+    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    val scope = rememberCoroutineScope()
 
     // 正则语法合法性:与引擎一致按 MULTILINE 编译(引擎正是这样编译规则的)
     val regexValid = remember(rule) {
@@ -413,18 +427,40 @@ private fun RuleEditDialog(
     }
     val canSave = name.isNotBlank() && regexValid
 
-    FolioAlertDialog(
+    // 先收起动画再回调关闭,与设置页 AI 表单一致(直接 onDismiss 会跳过收起动画)
+    fun dismiss() {
+        scope.launch { sheetState.hide() }.invokeOnCompletion { onDismiss() }
+    }
+
+    ModalBottomSheet(
         onDismissRequest = onDismiss,
-        title = {
-            Text(stringResource(if (initial == null) R.string.toc_rule_new else R.string.toc_rule_edit))
-        },
-        text = {
-            Column {
+        sheetState = sheetState,
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 12.dp)
+                .padding(bottom = 24.dp),
+        ) {
+            Text(
+                text = stringResource(
+                    if (initial == null) R.string.toc_rule_new else R.string.toc_rule_edit,
+                ),
+                style = MaterialTheme.typography.titleLarge,
+                modifier = Modifier.padding(start = 16.dp, end = 16.dp, bottom = 12.dp),
+            )
+            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 OutlinedTextField(
                     value = name,
                     onValueChange = { name = it },
                     label = { Text(stringResource(R.string.toc_rule_name)) },
+                    placeholder = { Text(stringResource(R.string.toc_rule_name_hint)) },
                     isError = name.isBlank(),
+                    supportingText = if (name.isBlank()) {
+                        { Text(stringResource(R.string.toc_rule_name_required)) }
+                    } else {
+                        null
+                    },
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth(),
                 )
@@ -432,56 +468,62 @@ private fun RuleEditDialog(
                     value = rule,
                     onValueChange = { rule = it },
                     label = { Text(stringResource(R.string.toc_rule_regex)) },
+                    placeholder = { Text(stringResource(R.string.toc_rule_regex_hint)) },
                     isError = !regexValid,
                     supportingText = if (!regexValid) {
                         { Text(stringResource(R.string.toc_rule_regex_invalid)) }
                     } else {
                         null
                     },
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(top = 12.dp),
+                    modifier = Modifier.fillMaxWidth(),
                 )
                 OutlinedTextField(
                     value = example,
                     onValueChange = { example = it },
                     label = { Text(stringResource(R.string.toc_rule_example)) },
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(top = 12.dp),
+                    placeholder = { Text(stringResource(R.string.toc_rule_example_hint)) },
+                    modifier = Modifier.fillMaxWidth(),
                 )
+            }
+            // 动作区:破坏性操作(删除)用 error 色,提交用 filled——与设置页 AI 表单同一层级
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(top = 12.dp),
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
                 if (onDelete != null) {
-                    TextButton(
-                        colors = ButtonDefaults.textButtonColors(
+                    OutlinedButton(
+                        onClick = onDelete,
+                        colors = ButtonDefaults.outlinedButtonColors(
                             contentColor = MaterialTheme.colorScheme.error,
                         ),
-                        onClick = onDelete,
-                        modifier = Modifier.padding(top = 12.dp),
+                        modifier = Modifier.weight(1f),
                     ) { Text(stringResource(R.string.toc_rule_delete)) }
                 }
+                OutlinedButton(onClick = ::dismiss, modifier = Modifier.weight(1f)) {
+                    Text(stringResource(R.string.cancel))
+                }
+                Button(
+                    onClick = {
+                        onSave(
+                            TocRuleUi(
+                                id = initial?.id ?: TocRuleUi.NEW_ID,
+                                name = name,
+                                rule = rule,
+                                example = example.ifBlank { null },
+                                // 新建规则排到末尾:serialNumber 取 -1(与 legado 数据类默认值一致),
+                                // 实际顺序由用户后续编辑调整
+                                serialNumber = initial?.serialNumber ?: -1,
+                                enable = initial?.enable ?: true,
+                            ),
+                        )
+                        dismiss()
+                    },
+                    enabled = canSave,
+                    modifier = Modifier.weight(1f),
+                ) { Text(stringResource(R.string.toc_rule_save)) }
             }
-        },
-        confirmButton = {
-            TextButton(
-                enabled = canSave,
-                onClick = {
-                    onSave(
-                        TocRuleUi(
-                            id = initial?.id ?: TocRuleUi.NEW_ID,
-                            name = name,
-                            rule = rule,
-                            example = example.ifBlank { null },
-                            // 新建规则排到末尾:serialNumber 取 -1(与 legado 数据类默认值一致),
-                            // 实际顺序由用户后续编辑调整
-                            serialNumber = initial?.serialNumber ?: -1,
-                            enable = initial?.enable ?: true,
-                        ),
-                    )
-                },
-            ) { Text(stringResource(R.string.toc_rule_save)) }
-        },
-        dismissButton = {
-            TextButton(onClick = onDismiss) { Text(stringResource(R.string.cancel)) }
-        },
-    )
+        }
+    }
 }

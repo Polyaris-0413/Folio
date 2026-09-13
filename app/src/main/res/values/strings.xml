@@ -114,6 +114,10 @@
     <string name="toc_rule_restore_action">恢复</string>
     <string name="toc_rule_delete_confirm">确定删除规则「%1$s」吗？</string>
     <string name="toc_rule_name">名称</string>
+    <string name="toc_rule_name_hint">必填</string>
+    <string name="toc_rule_name_required">必填</string>
+    <string name="toc_rule_regex_hint">例如 ^第.+章.{0,30}$</string>
+    <string name="toc_rule_example_hint">例如 第一章 标题</string>
     <string name="toc_rule_regex">正则表达式</string>
     <string name="toc_rule_regex_invalid">正则语法错误</string>
     <string name="toc_rule_example">示例标题</string>
