@@ -2,14 +2,25 @@ package com.folio.read.ui.toc
 
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.ExperimentalFoundationApi
-import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.ListItem
 import androidx.compose.material3.MaterialTheme
@@ -23,23 +34,30 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.folio.read.R
 import com.folio.read.ui.components.FolioAlertDialog
 import com.folio.read.ui.components.FolioTopBar
+import com.folio.read.ui.components.groupItemShape
+import com.folio.read.ui.components.groupItemSpacing
+import com.folio.read.ui.components.listItemColors
 
 /**
  * TXT 目录规则覆盖层（单 Activity 阅读页内，与 [com.folio.read.ui.reader.TocOverlay] 同款形态）。
  *
- * 交互与 legado 的规则页对齐到「功能面」而非组件树——legado 那套依赖其自有设计系统
- * （LegadoTheme + ui.widget.components + Koin），与本项目 Material 3 规范冲突，故用 M3 重画：
- *  - 点击某条规则 = 应用到本书（重新分章），空正则条目表示「回到自动择优」；
- *  - 右侧开关 = 启用/停用该规则（参与打分择优）；
- *  - 长按 = 编辑（含删除）；
- *  - 顶栏 = 新建 / 恢复内置规则。
+ * 交互（对齐 legado 的功能面，组件树按本项目的 Material 3 约定重画）：
+ *  - 行尾开关 = 启用/停用该规则（参与打分择优）；
+ *  - 行尾「更多」= 编辑 / 删除（**可见入口**，不再依赖长按——长按对无鼠标设备与
+ *    读屏都不友好，且与 Folio「开关行不整行可点击」的既有约定冲突）；
+ *  - 选择模式（[pickEnabled]）下点按整行 = 把该规则应用到本书，左侧用对勾标出当前规则；
+ *  - 顶栏 = 新建（图标）+ 溢出菜单（恢复内置——它是删除全部预置规则的批量操作，
+ *    不与「新建」同级平铺）。
  *
  * 入参用 [TocRuleUi] 而非移植来的 `TxtTocRule`，原因见 [TocRuleUi] 的注释（相等语义与
  * Compose 状态判定的冲突）。
@@ -58,7 +76,7 @@ fun TxtTocRuleOverlay(
     onDismiss: () -> Unit,
     /**
      * 是否处于「为某本书选规则」的上下文。设置页进入时为 false（没有当前书），
-     * 此时点击条目改为打开编辑，避免出现一个点了没反应的入口
+     * 此时整行不可点，仅保留行尾菜单，避免出现一个点了没反应的入口
      */
     pickEnabled: Boolean = true,
     /**
@@ -75,6 +93,11 @@ fun TxtTocRuleOverlay(
     var creating by remember { mutableStateOf(false) }
     var confirmRestore by remember { mutableStateOf(false) }
     var confirmDelete by remember { mutableStateOf<TocRuleUi?>(null) }
+    var topMenuOpen by remember { mutableStateOf(false) }
+
+    // 预览一旦开始，章数行就**恒占位**：原先未算完时不渲染该槽，后台逐条填入的过程中
+    // ListItem 会在 Two-line 与 Three-line 之间反复跳高，列表看着在抖。
+    val previewActive = previewProgress != null || previewCounts.isNotEmpty()
 
     Scaffold(
         modifier = Modifier.fillMaxSize(),
@@ -83,22 +106,56 @@ fun TxtTocRuleOverlay(
                 titleRes = R.string.toc_rule_manage,
                 onBack = onDismiss,
                 actions = {
-                    TextButton(onClick = { creating = true }) {
-                        Text(stringResource(R.string.toc_rule_new))
+                    IconButton(onClick = { creating = true }) {
+                        Icon(
+                            painter = painterResource(R.drawable.ic_add),
+                            contentDescription = stringResource(R.string.toc_rule_new),
+                        )
                     }
-                    TextButton(onClick = { confirmRestore = true }) {
-                        Text(stringResource(R.string.toc_rule_restore))
+                    Box {
+                        IconButton(onClick = { topMenuOpen = true }) {
+                            Icon(
+                                painter = painterResource(R.drawable.ic_more_vert),
+                                contentDescription = stringResource(R.string.shelf_more),
+                            )
+                        }
+                        DropdownMenu(
+                            expanded = topMenuOpen,
+                            onDismissRequest = { topMenuOpen = false },
+                        ) {
+                            DropdownMenuItem(
+                                text = { Text(stringResource(R.string.toc_rule_restore)) },
+                                leadingIcon = {
+                                    Icon(
+                                        painter = painterResource(R.drawable.ic_settings_restore),
+                                        contentDescription = null,
+                                    )
+                                },
+                                onClick = {
+                                    topMenuOpen = false
+                                    confirmRestore = true
+                                },
+                            )
+                        }
                     }
                 },
             )
         },
     ) { innerPadding ->
+        // 宽屏不拉满:与设置页一致地限宽,避免大屏上文本行过长
         Box(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(innerPadding),
+            contentAlignment = Alignment.TopCenter,
         ) {
-            LazyColumn(modifier = Modifier.fillMaxSize()) {
+            LazyColumn(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .widthIn(max = 600.dp),
+                contentPadding = PaddingValues(vertical = 8.dp),
+                verticalArrangement = Arrangement.spacedBy(groupItemSpacing),
+            ) {
                 previewProgress?.let { (done, total) ->
                     item {
                         // 预览在后台逐条试算：给出进度，避免用户以为界面卡住
@@ -112,7 +169,7 @@ fun TxtTocRuleOverlay(
                                 progress = { if (total == 0) 0f else done.toFloat() / total },
                                 modifier = Modifier
                                     .fillMaxWidth()
-                                    .padding(top = 6.dp),
+                                    .padding(top = 8.dp),
                             )
                         }
                     }
@@ -142,19 +199,46 @@ fun TxtTocRuleOverlay(
                 // 若「开」与「关」的条目共用复用池,回收来的节点会带着相反状态的旧位置,
                 // 新条目一出现就从旧位置滑到新位置——表现为滚动时开关重播切换动画。
                 // 现象规律也印证:全部开启或全部关闭时不复现,状态混杂时才复现。
-                items(rules, key = { it.id }, contentType = { it.enable }) { rule ->
+                itemsIndexed(
+                    items = rules,
+                    key = { _, rule -> rule.id },
+                    contentType = { _, rule -> rule.enable },
+                ) { index, rule ->
                     val isCurrent = rule.rule == currentRule && currentRule.isNotEmpty()
+                    var rowMenuOpen by remember { mutableStateOf(false) }
                     ListItem(
-                        overlineContent = {
-                            // 预览结果:这条规则能把当前书切成多少章(选规则的直接依据)。
-                            // 空正则条目是 legado 的兜底规则,语义为「按字数分章」,无需试算。
-                            val count = previewCounts[rule.id]
-                            when {
-                                rule.rule.isBlank() -> CountLabel(stringResource(R.string.toc_rule_by_word_count))
-                                count != null -> CountLabel(stringResource(R.string.toc_rule_chapter_count, count))
-                                previewProgress != null -> CountLabel(stringResource(R.string.toc_rule_counting))
-                                else -> Unit
+                        leadingContent = {
+                            // 当前规则用对勾标出(与设置页选择面板同一套表达:primary + 对勾)。
+                            // 非当前行留同宽占位,保证各行文字左缘对齐
+                            if (isCurrent) {
+                                Icon(
+                                    painter = painterResource(R.drawable.ic_check),
+                                    contentDescription = null,
+                                    tint = MaterialTheme.colorScheme.primary,
+                                )
+                            } else {
+                                Spacer(modifier = Modifier.width(24.dp))
                             }
+                        },
+                        overlineContent = if (previewActive) {
+                            {
+                                // 章数:选规则的直接依据。空正则条目按语义显示「按字数分章」。
+                                // 颜色用 onSurfaceVariant:primary 留给「当前规则」这一个信号
+                                val count = previewCounts[rule.id]
+                                Text(
+                                    text = when {
+                                        rule.rule.isBlank() ->
+                                            stringResource(R.string.toc_rule_by_word_count)
+                                        count != null ->
+                                            stringResource(R.string.toc_rule_chapter_count, count)
+                                        else -> stringResource(R.string.toc_rule_counting)
+                                    },
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            }
+                        } else {
+                            null
                         },
                         headlineContent = {
                             Text(
@@ -176,15 +260,60 @@ fun TxtTocRuleOverlay(
                             )
                         },
                         trailingContent = {
-                            Switch(
-                                checked = rule.enable,
-                                onCheckedChange = { onToggle(rule.id, it) },
-                            )
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Switch(
+                                    checked = rule.enable,
+                                    onCheckedChange = { onToggle(rule.id, it) },
+                                )
+                                Box {
+                                    IconButton(onClick = { rowMenuOpen = true }) {
+                                        Icon(
+                                            painter = painterResource(R.drawable.ic_more_vert),
+                                            contentDescription = stringResource(R.string.toc_rule_edit),
+                                        )
+                                    }
+                                    DropdownMenu(
+                                        expanded = rowMenuOpen,
+                                        onDismissRequest = { rowMenuOpen = false },
+                                    ) {
+                                        DropdownMenuItem(
+                                            text = { Text(stringResource(R.string.toc_rule_edit)) },
+                                            leadingIcon = {
+                                                Icon(
+                                                    painter = painterResource(R.drawable.ic_edit),
+                                                    contentDescription = null,
+                                                )
+                                            },
+                                            onClick = {
+                                                rowMenuOpen = false
+                                                editing = rule
+                                            },
+                                        )
+                                        DropdownMenuItem(
+                                            text = { Text(stringResource(R.string.toc_rule_delete)) },
+                                            leadingIcon = {
+                                                Icon(
+                                                    painter = painterResource(R.drawable.ic_shelf_delete),
+                                                    contentDescription = null,
+                                                )
+                                            },
+                                            onClick = {
+                                                rowMenuOpen = false
+                                                confirmDelete = rule
+                                            },
+                                        )
+                                    }
+                                }
+                            }
                         },
-                        modifier = Modifier.combinedClickable(
-                            onClick = { if (pickEnabled) onPick(rule.rule) else editing = rule },
-                            onLongClick = { editing = rule },
-                        ),
+                        colors = listItemColors(),
+                        modifier = Modifier
+                            .clip(groupItemShape(index, rules.size))
+                            // 整行只在「为某本书选规则」时可点:那是选择列表,整行点击是 M3 单选行的常规做法。
+                            // 管理态（设置页入口）不给整行点击,编辑走行尾菜单,避免点了没反应或与开关抢手势
+                            .then(
+                                if (pickEnabled) Modifier.clickable { onPick(rule.rule) } else Modifier,
+                            ),
                     )
                 }
             }
@@ -224,10 +353,16 @@ fun TxtTocRuleOverlay(
             title = { Text(stringResource(R.string.toc_rule_delete)) },
             text = { Text(stringResource(R.string.toc_rule_delete_confirm, deleteTarget.name)) },
             confirmButton = {
-                TextButton(onClick = {
-                    onDelete(deleteTarget.id)
-                    confirmDelete = null
-                }) { Text(stringResource(R.string.shelf_delete_confirm)) }
+                TextButton(
+                    // 破坏性动作用 error 角色
+                    colors = ButtonDefaults.textButtonColors(
+                        contentColor = MaterialTheme.colorScheme.error,
+                    ),
+                    onClick = {
+                        onDelete(deleteTarget.id)
+                        confirmDelete = null
+                    },
+                ) { Text(stringResource(R.string.toc_rule_delete_action)) }
             },
             dismissButton = {
                 TextButton(onClick = { confirmDelete = null }) {
@@ -243,10 +378,15 @@ fun TxtTocRuleOverlay(
             title = { Text(stringResource(R.string.toc_rule_restore)) },
             text = { Text(stringResource(R.string.toc_rule_restore_confirm)) },
             confirmButton = {
-                TextButton(onClick = {
-                    onRestoreBuiltIn()
-                    confirmRestore = false
-                }) { Text(stringResource(R.string.confirm)) }
+                TextButton(
+                    colors = ButtonDefaults.textButtonColors(
+                        contentColor = MaterialTheme.colorScheme.error,
+                    ),
+                    onClick = {
+                        onRestoreBuiltIn()
+                        confirmRestore = false
+                    },
+                ) { Text(stringResource(R.string.toc_rule_restore_action)) }
             },
             dismissButton = {
                 TextButton(onClick = { confirmRestore = false }) {
@@ -257,15 +397,6 @@ fun TxtTocRuleOverlay(
     }
 }
 
-/** 预览结果的小标（章数/按字数分章/计算中），与支持文本区分开以便一眼扫过 */
-@Composable
-private fun CountLabel(text: String) {
-    Text(
-        text = text,
-        style = MaterialTheme.typography.labelSmall,
-        color = MaterialTheme.colorScheme.primary,
-    )
-}
 
 /** 新建/编辑规则：字段沿用 legado 的 TxtTocRule（名称/正则/示例），并对正则做实时语法校验 */
 @Composable
@@ -296,6 +427,7 @@ private fun RuleEditDialog(
                     value = name,
                     onValueChange = { name = it },
                     label = { Text(stringResource(R.string.toc_rule_name)) },
+                    isError = name.isBlank(),
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth(),
                 )
@@ -311,7 +443,7 @@ private fun RuleEditDialog(
                     },
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(top = 8.dp),
+                        .padding(top = 12.dp),
                 )
                 OutlinedTextField(
                     value = example,
@@ -319,12 +451,15 @@ private fun RuleEditDialog(
                     label = { Text(stringResource(R.string.toc_rule_example)) },
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(top = 8.dp),
+                        .padding(top = 12.dp),
                 )
                 if (onDelete != null) {
                     TextButton(
+                        colors = ButtonDefaults.textButtonColors(
+                            contentColor = MaterialTheme.colorScheme.error,
+                        ),
                         onClick = onDelete,
-                        modifier = Modifier.padding(top = 8.dp),
+                        modifier = Modifier.padding(top = 12.dp),
                     ) { Text(stringResource(R.string.toc_rule_delete)) }
                 }
             }
