@@ -259,7 +259,15 @@ fun ReaderScreen(
         previewProgress = null
     }
     // 规则管理与逐本规则选择覆盖层:与目录覆盖层同款,盖在阅读页上
-    if (showTocRule) {
+    // 与设置页那个入口用同一套入场动效(淡入 + 1/16 屏宽推入):同一界面两个入口观感一致
+    AnimatedVisibility(
+        visible = showTocRule,
+        modifier = Modifier.fillMaxSize(),
+        enter = fadeIn(tween(AnimationTokens.XL)) +
+            slideInHorizontally(tween(AnimationTokens.XL)) { it / 16 },
+        exit = fadeOut(tween(AnimationTokens.XL)) +
+            slideOutHorizontally(tween(AnimationTokens.XL)) { it / 16 },
+    ) {
         val currentRule = book?.tocRule ?: ""
         TxtTocRuleOverlay(
             rules = tocRuleList,
