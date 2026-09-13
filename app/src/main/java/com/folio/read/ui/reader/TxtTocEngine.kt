@@ -58,18 +58,19 @@ object TxtTocEngine {
      * 确定，而章节缓存键用的正是它——若某个装载路径忘了回写，预读存下的章节会因键不一致
      * 被下一次打开丢弃、白解析一遍。集中在一处可保证三条路径的键永远一致。
      *
-     * @param splitLongChapter 单章超过 100KB 时是否按字数再拆（legado 的
-     *   `ReadConfig.splitLongChapter`，其默认值为 true）
      * @return [BookContent.tocRule] 为本次实际生效的目录正则；空串表示引擎走了
      *   「无规则→按字数分章」的兜底
      */
-    suspend fun parse(context: Context, book: Book, splitLongChapter: Boolean = true): BookContent {
+    suspend fun parse(context: Context, book: Book): BookContent {
         val carrier = io.legado.app.data.entities.Book(
             bookUrl = book.filePath,
             originName = book.filePath.substringAfterLast('/'),
             // 书内记住的规则(空=自动择优),对应 legado 的 book.tocUrl
             tocUrl = book.tocRule,
-            splitLongChapterEnabled = splitLongChapter,
+            // 超长章节拆分不启用:该功能的设置项已按使用者决定移除(用处窄、且会在目录里
+            // 留下人造的「原标题(1)(2)」与一个空条目)。引擎内那段拆分逻辑仍在逐字节搬运的
+            // TextFile 里原样保留、只是不被触发;要恢复只需把这里改回打开的取值。
+            splitLongChapterEnabled = false,
         )
         // 引擎按 bookUrl 缓存单例(含 8MB 滑动缓冲与字符集)。这里每次解析都先重置:
         // 源文件被外部替换时指纹变了但 bookUrl 不变,复用旧缓冲会读出错位的正文。

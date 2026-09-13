@@ -171,8 +171,7 @@ fun ReaderScreen(
         sourceFp = fp
         // 1) 进程内存章节缓存:同一进程内重开零 IO/零解析,秒出
         //    键含本书生效的目录规则(空=自动择优),换规则后自动重分章
-        val parseConfig = parseConfigSignature(context)
-        ReaderCache.memoryLoadChapters(loaded.id, fp, loaded.tocRule, parseConfig)?.let {
+        ReaderCache.memoryLoadChapters(loaded.id, fp, loaded.tocRule)?.let {
             chapters = it
             return@LaunchedEffect
         }
@@ -191,7 +190,7 @@ fun ReaderScreen(
         } else {
             chapters = parsed.chapters
             // 用「本次生效的规则」作缓存键,与 books.tocRule 落库值一致,下次打开可直接命中
-            ReaderCache.memoryStoreChapters(loaded.id, fp, parsed.tocRule, parseConfig, parsed.chapters)
+            ReaderCache.memoryStoreChapters(loaded.id, fp, parsed.tocRule, parsed.chapters)
         }
     }
 
@@ -311,13 +310,9 @@ fun ReaderScreen(
 // 书架预读复用(同模块 internal)
 internal val ReaderStyle = TextStyle(fontSize = 20.sp, lineHeight = 44.sp)
 
-/**
- * 分页缓存键中的排版签名:字号/行距/章节规则/文本处理变化会使分页边界失效。
- * 入参 config 为 parseConfigSignature(影响分章结果的设置):分章边界变了,同一章号指向的
- * 正文就不同,旧页表必须失效,否则会拿旧分页去套新正文。
- */
-internal fun readerStyleKey(config: String): String =
-    "${ReaderStyle.fontSize.value}x${ReaderStyle.lineHeight.value}|$ChapterRuleVersion|$TextProcessVersion|$config"
+/** 分页缓存键中的排版签名:字号/行距/章节规则/文本处理变化会使分页边界失效 */
+internal val ReaderStyleKey: String =
+    "${ReaderStyle.fontSize.value}x${ReaderStyle.lineHeight.value}|$ChapterRuleVersion|$TextProcessVersion"
 
 /** 正文左右/上下留白(分页测量与渲染共用,必须一致)。
  * 水平 20dp:正文宽 = 屏宽-2×20dp,对 20sp(80px)字宽正好 16 字/行整除,右缘无剩余半字 */
@@ -589,7 +584,6 @@ private fun ReaderPager(
                 // 后台补算:当前章 + 前后各 2 章(annotated + 页表),门禁 + 边界翻页无缝。
                 // 预计算窗口必须覆盖切章目标的后一哨兵章,否则布局渐进变化会让翻页器页码错位/冻住。
                 LaunchedEffect(curChapter, textWidth, textHeight, chapters) {
-                    val parseConfigForPages = parseConfigSignature(context)
                     if (chapters.isEmpty()) return@LaunchedEffect
                     val need = listOf(curChapter - 2, curChapter - 1, curChapter, curChapter + 1, curChapter + 2)
                         .filter { it in chapters.indices && chapterPages[it] == null }
@@ -604,7 +598,7 @@ private fun ReaderPager(
                         // 磁盘页表缓存(章内本地偏移)
                         val cached = sourceFp?.let {
                             withContext(Dispatchers.IO) {
-                                ReaderCache.loadPages(context, bookId, it, idx, textWidth, textHeight, readerStyleKey(parseConfigForPages))
+                                ReaderCache.loadPages(context, bookId, it, idx, textWidth, textHeight, ReaderStyleKey)
                             }
                         }
                         // 缓存自校验:首边界按当前度量重测(字体度量可能变化),不一致则作废重算
@@ -626,7 +620,7 @@ private fun ReaderPager(
                             }
                             if (sourceFp != null) {
                                 saveScope.launch {
-                                    ReaderCache.savePages(context, bookId, sourceFp, idx, textWidth, textHeight, readerStyleKey(parseConfigForPages), computed)
+                                    ReaderCache.savePages(context, bookId, sourceFp, idx, textWidth, textHeight, ReaderStyleKey, computed)
                                 }
                             }
                             computed

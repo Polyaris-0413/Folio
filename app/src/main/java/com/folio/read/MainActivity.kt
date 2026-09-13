@@ -116,7 +116,6 @@ import com.folio.read.data.UpdateChecker
 import com.folio.read.data.UpdateSettingsRepository
 import com.folio.read.data.compareVersions
 import com.folio.read.data.PageTurnSettingsRepository
-import com.folio.read.data.SplitChapterSettingsRepository
 import com.folio.read.data.ShelfLayout
 import com.folio.read.data.ShelfLayoutMode
 import com.folio.read.data.ShelfSyncSettings
@@ -411,10 +410,6 @@ private fun AppRoot(
     val pageTurn by pageTurnRepo.pageTurn.collectAsState(
         initial = PageTurnSettings(PageTurnMode.SWIPE),
     )
-
-    // 超长章节自动拆分(legado 的 splitLongChapter,默认开)
-    val splitChapterRepo = remember { SplitChapterSettingsRepository(context.applicationContext) }
-    val splitLongChapter by splitChapterRepo.splitLongChapter.collectAsState(initial = true)
 
     // AI 配置(API Key/地址/模型)
     val aiRepo = remember { AiSettingsRepository(context.applicationContext) }
@@ -917,10 +912,6 @@ private fun AppRoot(
                         appScope.launch { shelfSettingsRepo.setShelfLayout(layout) }
                     },
                     pageTurn = pageTurn,
-                    splitLongChapter = splitLongChapter,
-                    onSplitLongChapterChange = { enabled ->
-                        appScope.launch { splitChapterRepo.setEnabled(enabled) }
-                    },
                     onPageTurnChange = { turn ->
                         appScope.launch { pageTurnRepo.setPageTurnMode(turn.mode) }
                     },

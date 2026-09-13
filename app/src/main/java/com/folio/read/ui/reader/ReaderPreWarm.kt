@@ -31,8 +31,7 @@ suspend fun preWarmBook(
             null
         }
     } ?: return
-    val parseConfig = parseConfigSignature(context)
-    val cached = ReaderCache.memoryLoadChapters(book.id, fp, book.tocRule, parseConfig)
+    val cached = ReaderCache.memoryLoadChapters(book.id, fp, book.tocRule)
     val content = if (cached != null) {
         BookContent(cached, book.tocRule)
     } else {
@@ -43,13 +42,13 @@ suspend fun preWarmBook(
             }
         } ?: return
     }
-    ReaderCache.memoryStoreChapters(book.id, fp, content.tocRule, parseConfig, content.chapters)
+    ReaderCache.memoryStoreChapters(book.id, fp, content.tocRule, content.chapters)
     val chapters = content.chapters
     if (chapters.isEmpty()) return
 
     // 2) 当前章分页:与阅读页同款测量,只填空(已有缓存不重算,避免与阅读页并发写)
     val idx = book.currentChapterIndex.coerceIn(0, chapters.lastIndex)
-    if (ReaderCache.loadPages(context, book.id, fp, idx, textWidth, textHeight, readerStyleKey(parseConfig)) != null) return
+    if (ReaderCache.loadPages(context, book.id, fp, idx, textWidth, textHeight, ReaderStyleKey) != null) return
     val annotated = withContext(Dispatchers.Default) { buildChapterAnnotated(chapters[idx]) }
     val linesPerPage = with(density) {
         (textHeight / ReaderStyle.lineHeight.toPx()).toInt().coerceAtLeast(1)
@@ -61,6 +60,6 @@ suspend fun preWarmBook(
         val pages = chapterPagesOf(
             annotated, annotated.length, measurerFactory(), style, textWidth, textHeight, linesPerPage,
         )
-        ReaderCache.savePages(context, book.id, fp, idx, textWidth, textHeight, readerStyleKey(parseConfig), pages)
+        ReaderCache.savePages(context, book.id, fp, idx, textWidth, textHeight, ReaderStyleKey, pages)
     }
 }

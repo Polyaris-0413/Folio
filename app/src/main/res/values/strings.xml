@@ -119,8 +119,6 @@
     <string name="toc_rule_builtin_fallback">空正则：按字数分章(兜底)</string>
     <string name="toc_rule_hint_manage">点击或长按规则可编辑；开关控制该规则是否参与自动择优</string>
     <string name="toc_rule_empty">暂无规则。可点右上角「新建」自定义，或「恢复内置」写回内置规则。</string>
-    <string name="settings_split_chapter">超长章节自动拆分</string>
-    <string name="settings_split_chapter_desc">单章超过 100KB 时按字数拆分；关闭后长章保持整章</string>
     <string name="toc_rule_preview_progress">正在试算 %1$d/%2$d</string>
     <string name="toc_rule_chapter_count">%1$d 章</string>
     <string name="toc_rule_counting">计算中…</string>
