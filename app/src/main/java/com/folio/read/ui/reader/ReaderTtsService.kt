@@ -269,7 +269,8 @@ class ReaderTtsService : Service() {
             }
             val fp = querySourceFingerprint(this@ReaderTtsService, loaded.filePath)
             // 章节:进程内缓存 → 按扩展名解析(readBook 返回每章独立 content),回写内存缓存
-            val cached = ReaderCache.memoryLoadChapters(bookId, fp, loaded.tocRule)
+            val parseConfig = parseConfigSignature(this@ReaderTtsService)
+            val cached = ReaderCache.memoryLoadChapters(bookId, fp, loaded.tocRule, parseConfig)
             val content = if (cached != null) {
                 BookContent(cached, loaded.tocRule)
             } else {
@@ -288,7 +289,7 @@ class ReaderTtsService : Service() {
                 return@launch
             }
             val loadedChapters = content.chapters
-            ReaderCache.memoryStoreChapters(bookId, fp, content.tocRule, loadedChapters)
+            ReaderCache.memoryStoreChapters(bookId, fp, content.tocRule, parseConfig, loadedChapters)
             book = loaded
             chapters = loadedChapters
             coverBitmap = renderBookCover(loaded)

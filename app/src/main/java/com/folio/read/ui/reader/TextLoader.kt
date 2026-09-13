@@ -50,6 +50,17 @@ fun querySourceFingerprint(context: Context, filePath: String): String? =
  * ([TxtTocEngine]):内置规则库打分择优 → 按正则切章(字节偏移) → 无规则时按 10KB 字数分章。
  * 相比此前的「单条硬编码正则 + 整本一章兜底」,规则可增删改,且任何书都有可跳转的目录。
  */
+/**
+ * 影响分章结果的解析设置签名，参与章节缓存键与页表排版签名。
+ *
+ * 为什么必须进键：章节内存缓存的键是 (书号, 源文件指纹, 目录规则)，页表键是
+ * (源指纹, 章号, 尺寸, 排版签名)——两者原先都不含「超长章节自动拆分」。于是切换该设置后
+ * 内存里的旧分章被复用（开关看起来没生效），磁盘上按旧分章算出的分页表也会被复用
+ * （章号已指向不同正文，会静默错版）。折进键之后重开即自动 miss 并重算，无需手写清缓存。
+ */
+suspend fun parseConfigSignature(context: Context): String =
+    if (SplitChapterSettingsRepository(context).splitLongChapter.first()) "sp1" else "sp0"
+
 suspend fun readBook(context: Context, book: Book): BookContent {
     val ext = book.filePath.substringAfterLast('.', "").lowercase()
     return when (ext) {
