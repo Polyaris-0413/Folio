@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
@@ -153,7 +154,8 @@ fun TxtTocRuleOverlay(
                 modifier = Modifier
                     .fillMaxWidth()
                     .widthIn(max = 600.dp),
-                contentPadding = PaddingValues(vertical = 8.dp),
+                // 与设置页一致：横向 12dp 内边距，卡片不贴屏边
+                contentPadding = PaddingValues(start = 12.dp, end = 12.dp, top = 16.dp, bottom = 16.dp),
                 verticalArrangement = Arrangement.spacedBy(groupItemSpacing),
             ) {
                 previewProgress?.let { (done, total) ->
@@ -173,16 +175,6 @@ fun TxtTocRuleOverlay(
                             )
                         }
                     }
-                }
-                item {
-                    Text(
-                        text = stringResource(
-                            if (pickEnabled) R.string.toc_rule_hint else R.string.toc_rule_hint_manage,
-                        ),
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
-                    )
                 }
                 if (rules.isEmpty()) {
                     item {
@@ -207,19 +199,6 @@ fun TxtTocRuleOverlay(
                     val isCurrent = rule.rule == currentRule && currentRule.isNotEmpty()
                     var rowMenuOpen by remember { mutableStateOf(false) }
                     ListItem(
-                        leadingContent = {
-                            // 当前规则用对勾标出(与设置页选择面板同一套表达:primary + 对勾)。
-                            // 非当前行留同宽占位,保证各行文字左缘对齐
-                            if (isCurrent) {
-                                Icon(
-                                    painter = painterResource(R.drawable.ic_check),
-                                    contentDescription = null,
-                                    tint = MaterialTheme.colorScheme.primary,
-                                )
-                            } else {
-                                Spacer(modifier = Modifier.width(24.dp))
-                            }
-                        },
                         overlineContent = if (previewActive) {
                             {
                                 // 章数:选规则的直接依据。空正则条目按语义显示「按字数分章」。
@@ -261,10 +240,28 @@ fun TxtTocRuleOverlay(
                         },
                         trailingContent = {
                             Row(verticalAlignment = Alignment.CenterVertically) {
-                                Switch(
-                                    checked = rule.enable,
-                                    onCheckedChange = { onToggle(rule.id, it) },
-                                )
+                                // 当前规则标记放在行尾(与设置页选择面板同一套表达:primary + 对勾)。
+                                // 曾放在行首,非当前行必须留同宽占位,于是最左空出一块、且只有一行缩进
+                                if (isCurrent) {
+                                    Icon(
+                                        painter = painterResource(R.drawable.ic_check),
+                                        contentDescription = null,
+                                        tint = MaterialTheme.colorScheme.primary,
+                                        modifier = Modifier.width(24.dp),
+                                    )
+                                }
+                                // 开关放进固定尺寸的居中方框:开关视觉高 32dp、触摸目标 48dp,
+                                // 与 40dp 的 IconButton 直接同排时视觉中心会随行高浮动,
+                                // 用等高方框把两者的中心钉在同一条中线上
+                                Box(
+                                    modifier = Modifier.width(52.dp).height(48.dp),
+                                    contentAlignment = Alignment.Center,
+                                ) {
+                                    Switch(
+                                        checked = rule.enable,
+                                        onCheckedChange = { onToggle(rule.id, it) },
+                                    )
+                                }
                                 Box {
                                     IconButton(onClick = { rowMenuOpen = true }) {
                                         Icon(
