@@ -1,7 +1,8 @@
 # Folio 项目规范
 
 ## 设计
-项目所使用的设计语言为 Material Design；在设计界面时，需遵循 Material 3 技能的规范
+项目所使用的设计语言为 Material Design
+在设计界面时 需遵循 Material 3 技能的规范
 路径为 C:\Users\Administrator.zcode\skills\material-3
 
 ## 更新日志
@@ -23,6 +24,14 @@
 更新日志中有五个条目依次为：新增、改进、修复、调整、移除
 请确保相关条目被放在了正确的位置
 
-具体 changelog 格式可参考前文
+具体 changelog 风格及格式可参考前文
+
+### 图标获取
+用户会从 Material Symbols 中提供项目所需的图标
+所有图标均会被下载至 C:\Users\Administrator\Downloads
+
+### 杂项
+- 禁止私自在真机进行与键盘输入有关的调试 这会导致输入法的BUG 应要求用户进行手动调试
+- baseline profile 无法在真机上录制 原因未知 需要使用虚拟机 
 
 
