@@ -3,7 +3,7 @@
 ## 设计
 项目所使用的设计语言为 Material Design
 在设计界面时 需遵循 Material 3 技能的规范
-路径为 C:\Users\Administrator.zcode\skills\material-3
+路径为 C:\Users\Administrator\.zcode\skills\material-3
 
 ## 更新日志
 
