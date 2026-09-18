@@ -206,44 +206,49 @@ fun TxtTocRuleOverlay(
                     val isCurrent = rule.rule == currentRule && currentRule.isNotEmpty()
                     var rowMenuOpen by remember { mutableStateOf(false) }
                     ListItem(
-                        overlineContent = if (previewActive) {
-                            {
-                                // 章数:选规则的直接依据。空正则条目按语义显示「按字数分章」。
-                                // 颜色用 onSurfaceVariant:primary 留给「当前规则」这一个信号
-                                val count = previewCounts[rule.id]
+                        // 三层文本统一由 headline 槽承载,刻意不用 overline/supporting 槽:
+                        // M3 ListItem 只要 supporting 占两行、或 overline 与 supporting 并存,就判为
+                        // ThreeLine,其布局把 trailingContent 顶对齐(topPadding)而非垂直居中
+                        // ——本行 trailing 是 48dp 的开关+菜单按钮组,贴顶就是「按钮不居中」
+                        // (示例含换行、渲染成两行的规则可复现)。槽位空置后恒判 OneLine,trailing 居中。
+                        // 字号仍按各槽的 token 对齐:headline=BodyLarge 由槽提供,
+                        // supporting=BodyMedium、overline=LabelSmall 在此显式声明
+                        headlineContent = {
+                            Column {
+                                if (previewActive) {
+                                    // 章数:选规则的直接依据。空正则条目按语义显示「按字数分章」。
+                                    // 颜色用 onSurfaceVariant:primary 留给「当前规则」这一个信号
+                                    val count = previewCounts[rule.id]
+                                    Text(
+                                        text = when {
+                                            rule.rule.isBlank() ->
+                                                stringResource(R.string.toc_rule_by_word_count)
+                                            count != null ->
+                                                stringResource(R.string.toc_rule_chapter_count, count)
+                                            else -> stringResource(R.string.toc_rule_counting)
+                                        },
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    )
+                                }
                                 Text(
-                                    text = when {
-                                        rule.rule.isBlank() ->
-                                            stringResource(R.string.toc_rule_by_word_count)
-                                        count != null ->
-                                            stringResource(R.string.toc_rule_chapter_count, count)
-                                        else -> stringResource(R.string.toc_rule_counting)
-                                    },
-                                    style = MaterialTheme.typography.labelSmall,
+                                    text = rule.name,
+                                    color = if (isCurrent) MaterialTheme.colorScheme.primary
+                                    else MaterialTheme.colorScheme.onSurface,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                )
+                                Text(
+                                    // 空正则条目是 legado 的兜底规则,启用后等价于「按字数分章」
+                                    text = rule.example?.takeIf { it.isNotBlank() }
+                                        ?: rule.rule.takeIf { it.isNotBlank() }
+                                        ?: stringResource(R.string.toc_rule_builtin_fallback),
+                                    style = MaterialTheme.typography.bodyMedium,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    maxLines = 2,
+                                    overflow = TextOverflow.Ellipsis,
                                 )
                             }
-                        } else {
-                            null
-                        },
-                        headlineContent = {
-                            Text(
-                                text = rule.name,
-                                color = if (isCurrent) MaterialTheme.colorScheme.primary
-                                else MaterialTheme.colorScheme.onSurface,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis,
-                            )
-                        },
-                        supportingContent = {
-                            Text(
-                                // 空正则条目是 legado 的兜底规则,启用后等价于「按字数分章」
-                                text = rule.example?.takeIf { it.isNotBlank() }
-                                    ?: rule.rule.takeIf { it.isNotBlank() }
-                                    ?: stringResource(R.string.toc_rule_builtin_fallback),
-                                maxLines = 2,
-                                overflow = TextOverflow.Ellipsis,
-                            )
                         },
                         trailingContent = {
                             Row(verticalAlignment = Alignment.CenterVertically) {
