@@ -8,7 +8,7 @@
 ## 更新日志
 
 项目包含一个更新日志文件
-路径为 C:\Users\Administrator\Desktop
+路径为 C:\Users\Administrator\StudioProjects\Folio
 名称为 Folio更新日志.txt
 
 更新日志仅需记录对比上个已发布版本所进行的净更改 但在每次代码修改后都需判断是否记录日志
@@ -29,6 +29,7 @@
 ### 图标获取
 用户会从 Material Symbols 中提供项目所需的图标
 所有图标均会被下载至 C:\Users\Administrator\Downloads
+禁止自行下载
 
 ### 杂项
 - 禁止私自在真机进行与键盘输入有关的调试 这会导致输入法的BUG 应要求用户进行手动调试
